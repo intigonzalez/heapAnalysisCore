@@ -34,21 +34,22 @@ get_thread_name(jvmtiEnv *jvmti, jthread thread, char *tname, int maxlen)
     }
 }
 
-#define STRLEN(s) (sizeof(s)/sizeof(s[0]))
+#define STRLEN(s) (strlen(s))
 #define STRNCMP(s1,s2) strncmp(s1,s2,STRLEN(s1))
 static jboolean 
 isSystemClass(char* className)
 {
-	return STRNCMP("Ljava/lang/Object;", className)==0
-		|| STRNCMP("Ljava/lang/String;", className)==0
-		|| STRNCMP("Ljava/lang/Number;", className)==0
-		|| STRNCMP("Ljava/lang/Integer;", className)==0
-		|| STRNCMP("Ljava/lang/Character;", className)==0
-		|| STRNCMP("Ljava/lang/Comparable;", className)==0
-		|| STRNCMP("Ljava/lang/ClassLoader;", className)==0
-		|| STRNCMP("Ljava/lang/Thread;", className)==0
-		|| STRNCMP("Ljava/lang/Runnable;", className)==0
-		|| STRNCMP("Ljava/lang/Class;", className)==0;
+	return STRNCMP("Ljava/", className)==0
+		|| STRNCMP("Lsun/", className)==0
+		|| STRNCMP("[C", className)==0
+		|| STRNCMP("[B", className)==0
+		|| STRNCMP("[Z", className)==0
+		|| STRNCMP("[J", className)==0
+		|| STRNCMP("[Lsun/", className)==0
+		|| STRNCMP("[Ljava/", className)==0
+		|| STRNCMP("[Ljavax/", className)==0
+		|| STRNCMP("Ljava/", className)==0		
+		;
 }
 
 /* Callback for HeapReferences in FollowReferences (Memory consumed by Thread) */
@@ -102,9 +103,9 @@ jint JNICALL callback_all_references
 					//	stdout_message("One Another class detected in the common stage with ref_kind:%d\n", reference_kind);					
 					//}					
 					if (!isClassVisited(d)) {
-						setClassInfoVisited(d, JNI_TRUE);
 						//gdata->visited[d->idx_signature] = JNI_TRUE;
-						if (!isSystemClass(getClassSignature(d))) {						
+						if (isSystemClass(getClassSignature(d))) {
+							setClassInfoVisited(d, JNI_TRUE);						
 							d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 							d->count++;
 							d->space += (int)size;						
@@ -185,10 +186,10 @@ jint JNICALL callback_single_thread
 					}
 					
 					d = (ClassDetails*)(void*)(ptrdiff_t)(*tag_ptr);
-					if (!isClassVisited(d)) {
-						setClassInfoVisited(d, JNI_TRUE);
-						
-						if (!isSystemClass(getClassSignature(d))) {						
+					if (!isClassVisited(d)) {						
+						if (!isSystemClass(getClassSignature(d))) {
+							setClassInfoVisited(d, JNI_TRUE);						
+							stdout_message("Clase de mierda %s, ref_kind %d\n", getClassSignature(d), reference_kind);							
 							d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 							d->count++;
 							d->space += (int)size;							
@@ -283,9 +284,9 @@ jint createPrincipal_per_thread(jvmtiEnv* jvmti,
 							threads[i], &th_info);
 			check_jvmti_error(jvmti, err, "get thread info");
 			
-			err = (*jvmti)->SetTag(jvmti, th_info.context_class_loader,
-                            	(jlong)(tmp + count_principals));
-        	check_jvmti_error(jvmti, err, "set thread tag");
+			//err = (*jvmti)->SetTag(jvmti, th_info.context_class_loader,
+            //                	(jlong)(tmp + count_principals));
+        	//check_jvmti_error(jvmti, err, "set thread tag");
 		}
 	}
 	/* Free up all allocated space */
@@ -305,6 +306,8 @@ jint createPrincipal_per_thread(jvmtiEnv* jvmti,
 		(*principals)[j].tag = nextInSequence();
 		(*principals)[j].strategy_to_explore = (j==0)?
 						(&followReferences_to_discard):(&explore_FollowReferences_Thread);
+
+//		(*principals)[j].strategy_to_explore = (&explore_FollowReferences_Thread);
     }
 	return count_principals;
 }

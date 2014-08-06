@@ -55,6 +55,7 @@
 
 /* Global static data */
 typedef struct {
+	jvmtiEnv      *jvmti;
     jboolean      vmDeathCalled;
     jboolean      dumpInProgress;
     jrawMonitorID lock;
@@ -108,19 +109,20 @@ printTable(ClassDetails* details, int count)
 	stdout_message("Heap View, Total of %d objects found, with a total size of %d.\n\n",
 		             totalCount, totalSize);
 
-	stdout_message("Space      Count      Class Signature\n");
-	stdout_message("---------- ---------- ----------------------\n");
+	stdout_message("Nro.      Space      Count      Class Signature\n");
+	stdout_message("--------- ---------- ---------- ----------------------\n");
 
 	for ( i = 0 ; i < count ; i++ ) {
-		if ( details[i].space == 0 || i > 50 ) {
+		if ( details[i].space == 0 || i > 25 ) {
 		    break;
 		}
-		stdout_message("%10d %10d %s\n",
+		stdout_message("%9d %10d %10d %s\n",
+			i,
 		    details[i].space, 
 			details[i].count, 
 			getClassSignature(&details[i]));
 	}
-	stdout_message("---------- ---------- ----------------------\n\n");
+	stdout_message("--------- ---------- ---------- ----------------------\n\n");
 }
 
 
@@ -272,17 +274,59 @@ dataDumpRequest(jvmtiEnv *jvmti)
     } exitAgentMonitor(jvmti);
 }
 
+/* Java Native Method for entry */
+static void
+HEAPANALYSIS_native_analysis(JNIEnv *env, jclass klass)
+{
+	dataDumpRequest(gdata->jvmti);
+}
+
+/* Callback for JVMTI_EVENT_VM_START */
+static void JNICALL
+cbVMStart(jvmtiEnv *jvmti, JNIEnv *env)
+{
+    enterAgentMonitor(jvmti); {
+        jclass   klass;
+        jfieldID field;
+        int      rc;
+
+        /* Java Native Methods for class */
+        static JNINativeMethod registry[1] = {
+            {"analysis", "()V",
+                (void*)&HEAPANALYSIS_native_analysis}
+        };
+
+        /* The VM has started. */
+        stdout_message("VMStart\n");
+
+        /* Register Natives for class whose methods we use */
+        klass = (*env)->FindClass(env, "HeapAnalysis");
+        if ( klass == NULL ) {
+            fatal_error("ERROR: JNI: Cannot find %s with FindClass\n",
+                        "HeapAnalysis");
+        }
+        rc = (*env)->RegisterNatives(env, klass, registry, 1);
+        if ( rc != 0 ) {
+            fatal_error("ERROR: JNI: Cannot register native methods for %s\n",
+                        "HeapAnalysis");
+        }
+
+    } exitAgentMonitor(jvmti);
+}
+
 /* Callback for JVMTI_EVENT_VM_INIT */
 static void JNICALL
 vmInit(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
 {
-    enterAgentMonitor(jvmti); {
+    /*
+	enterAgentMonitor(jvmti); {
         jvmtiError          err;
 
         err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
                             JVMTI_EVENT_DATA_DUMP_REQUEST, NULL);
         check_jvmti_error(jvmti, err, "set event notification");
     } exitAgentMonitor(jvmti);
+	*/
 }
 
 /* Callback for JVMTI_EVENT_VM_DEATH */
@@ -297,14 +341,27 @@ vmDeath(jvmtiEnv *jvmti, JNIEnv *env)
 
     /* Disable events and dump the heap information */
     enterAgentMonitor(jvmti); {
-        err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_DISABLE,
+		/*        
+		err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_DISABLE,
                             JVMTI_EVENT_DATA_DUMP_REQUEST, NULL);
         check_jvmti_error(jvmti, err, "set event notification");
 
         dataDumpRequest(jvmti);
-
+		*/
         gdata->vmDeathCalled = JNI_TRUE;
     } exitAgentMonitor(jvmti);
+}
+
+/* Add demo jar file to boot class path (the BCI Tracker class must be
+ *     in the boot classpath)
+ *
+ */
+void
+add_demo_jar_to_bootclasspath2(jvmtiEnv *jvmti, char *demo_name)
+{
+    jvmtiError error;
+    error = (*jvmti)->AddToBootstrapClassLoaderSearch(jvmti, (const char*)demo_name);
+    check_jvmti_error(jvmti, error, "Cannot add to boot classpath");
 }
 
 
@@ -329,6 +386,9 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
         fatal_error("ERROR: No jvmtiEnv* returned from GetEnv\n");
     }
 
+	/* Here we save the jvmtiEnv* for Agent_OnUnload(). */
+    gdata->jvmti = jvmti;
+
     /* Get/Add JVMTI capabilities */
     (void)memset(&capabilities, 0, sizeof(capabilities));
     capabilities.can_tag_objects = 1;
@@ -342,6 +402,7 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 
     /* Set callbacks and enable event notifications */
     memset(&callbacks, 0, sizeof(callbacks));
+    callbacks.VMStart          		  = &cbVMStart;
     callbacks.VMInit                  = &vmInit;
     callbacks.VMDeath                 = &vmDeath;
     callbacks.DataDumpRequest         = &dataDumpRequest;
@@ -354,6 +415,12 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
                         JVMTI_EVENT_VM_DEATH, NULL);
     check_jvmti_error(jvmti, err, "set event notifications");
+	err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
+                        JVMTI_EVENT_VM_START, NULL);
+    check_jvmti_error(jvmti, err, "set event notifications");
+
+	/* Add demo jar file to boot classpath */
+    add_demo_jar_to_bootclasspath2(jvmti, "heapanalysis.jar");
 
 	/* Setup global data */
     return 0;

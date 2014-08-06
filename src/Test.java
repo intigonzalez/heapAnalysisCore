@@ -1,5 +1,5 @@
 import java.net.*;
-import java.io.File;
+import java.io.*;
 import java.lang.reflect.Field;
 /**
  *
@@ -19,7 +19,7 @@ public class Test {
 				if (cl != null)
 					System.out.println("The class was loaded");
 				f = cl.getField("pepe");
-				//obj = cl.newInstance();
+				obj = cl.newInstance();
 				f.setLong(obj, t);
 			}
 			catch (Exception ex) {
@@ -31,7 +31,7 @@ public class Test {
 				objs[i] = new Integer(i);
 			while(true) {
 				try {
-					Thread.sleep(1000);
+					Thread.sleep(60000);
 					String s = new String("Coco es un feo");
 					System.out.printf("Iteration!!! %s %d\n", cl, f.getLong(null));
 				}
@@ -40,6 +40,8 @@ public class Test {
 			}
 		}
 	}
+
+	private static final String ANALYSIS_COMMAND = "stats";
 
 	public static void main(String[] args) throws Exception {
 		boolean[] bb = new boolean[1000000];
@@ -58,5 +60,17 @@ public class Test {
 		th2.setName("The guy");
 		th2.start();
 		System.out.printf("Started an running\n");
+		BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+		System.out.printf("> ");
+		String line = reader.readLine();
+		while (line != null) {
+			if (line.equals(ANALYSIS_COMMAND)) {
+				HeapAnalysis.analysis();
+			}
+			else
+				System.out.printf("%s\n", line);
+			System.out.printf("> ");
+			line = reader.readLine();
+		}
 	}
 }
