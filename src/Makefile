@@ -125,14 +125,14 @@ CFLAGS += -I.
 CFLAGS += -I$(JDK)/include -I$(JDK)/include/$(OSNAME)
 
 # Default rule
-all: $(LIBRARY) JarFile
+all: $(LIBRARY) heapanalysis.jar
 
 # Build native library
 $(LIBRARY): $(OBJECTS)
 	$(LINK_SHARED) $(OBJECTS) $(LIBRARIES)
 
 # Jar file
-JarFile: HeapAnalysis.java
+heapanalysis.jar: HeapAnalysis.java Test.java
 	javac HeapAnalysis.java
 	javac Test.java
 	jar cf heapanalysis.jar HeapAnalysis.class
