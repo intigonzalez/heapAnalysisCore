@@ -21,7 +21,7 @@ jint JNICALL callback_all_alive_objects
 		ClassDetails *d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 		
 		char* className = getClassSignature(d);
-		if (!strcmp(className, "Ljava/lang/Class;")) {
+		if (isClassClass(d)) {
 			// it's a class object. I have to discover if I already visited it
 			if ((*tag_ptr) == 0) {
 				//fatal_error("Oups, a class object with null tag\n");

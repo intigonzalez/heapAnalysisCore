@@ -12,6 +12,7 @@
 
 typedef struct {
 	char* signature;
+	jboolean is_clazz_clazz;
 	jboolean visited;
 } ClassInfo;
 
@@ -44,6 +45,10 @@ typedef jint (*CreatePrincipals)
 char* getClassSignature(ClassDetails* d);
 jboolean isClassVisited(ClassDetails* d);
 void setClassInfoVisited(ClassDetails* d, jboolean b);
+jboolean isClassClass(ClassDetails* d);
+
+/*Operation related to object tagging*/
+void removeTags(jvmtiEnv* jvmti);
 
 /* Operation to handle an infinite sequence */
 jlong getLastInSequence();

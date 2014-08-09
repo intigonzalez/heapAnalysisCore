@@ -146,6 +146,12 @@ void explorePrincipals(
 	ClassDetails* details;
 	ResourcePrincipal shared_stuff_principal;
 
+	struct timeval tv;
+	struct timeval start_tv;
+	double elapsed = 0.0;
+
+	gettimeofday(&start_tv, NULL);
+
     /** General algorithm
      * 1 - Build the collection RPs of resource principals
      * 2 - Exclude objects and classes that are shared among principals
@@ -195,6 +201,12 @@ void explorePrincipals(
     for (j = 0 ; j < count_principals ; ++j)
     	free(principals[j].details);
     free(principals);
+	removeTags(jvmti);
+	
+	gettimeofday(&tv, NULL);
+	elapsed = (tv.tv_sec - start_tv.tv_sec) * 1000000.0 +
+  		(tv.tv_usec - start_tv.tv_usec);
+	stdout_message("\n=========================================\n Elapsed time: %lf microseconds\n=========================================\n", elapsed);
 }
 
 /* Callback for JVMTI_EVENT_DATA_DUMP_REQUEST (Ctrl-\ or at exit) */
@@ -232,6 +244,7 @@ dataDumpRequest(jvmtiEnv *jvmti)
 				if ( sig == NULL )
 					fatal_error("ERROR: No class signature found\n");
 				gdata->info_classes[i].signature = strdup(sig);
+				gdata->info_classes[i].is_clazz_clazz = !strcmp(sig, "Ljava/lang/Class;");
 				deallocate(jvmti, sig);
 			}
 

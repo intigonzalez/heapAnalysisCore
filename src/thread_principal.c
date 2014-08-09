@@ -92,7 +92,7 @@ jint JNICALL callback_all_references
 						&& reference_info->stack_local.thread_tag != princ->tag)) // if local variable from 
 					return 0;
 			default:
-				if (!strcmp(className, "Ljava/lang/Class;")) {
+				if (isClassClass(d)) {
 					// it's a class object. I have to discover if I already visited it
 					if ((*tag_ptr) == 0) {
 						return 0;			
@@ -102,15 +102,13 @@ jint JNICALL callback_all_references
 					//if (!strcmp(getClassSignature(d), "LAnother;")) {
 					//	stdout_message("One Another class detected in the common stage with ref_kind:%d\n", reference_kind);					
 					//}					
-					if (!isClassVisited(d)) {
-						//gdata->visited[d->idx_signature] = JNI_TRUE;
-						if (isSystemClass(getClassSignature(d))) {
-							setClassInfoVisited(d, JNI_TRUE);						
-							d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
-							d->count++;
-							d->space += (int)size;						
-							return JVMTI_VISIT_OBJECTS;
-						}
+					if (!isClassVisited(d) 
+								&& isSystemClass(getClassSignature(d))) {
+						setClassInfoVisited(d, JNI_TRUE);						
+						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
+						d->count++;
+						d->space += (int)size;						
+						return JVMTI_VISIT_OBJECTS;
 					}
 					return 0;
 				}
@@ -155,10 +153,10 @@ jint JNICALL callback_single_thread
 	if ( (class_tag != (jlong)0)) {
 		ClassDetails *d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 		char* className = getClassSignature(d);
-		if (!strcmp(className, "Ljava/net/URLClassLoader;") && reference_kind == 2) {
-			d = (ClassDetails*)(void*)(ptrdiff_t)referrer_class_tag;
-			stdout_message("^^^^^^^^^^^^^^^^^^^^^^ %d %s %ld %ld\n", reference_kind, getClassSignature(d), (*tag_ptr), princ->tag);		
-		}
+		//if (!strcmp(className, "Ljava/net/URLClassLoader;") && reference_kind == 2) {
+		//	d = (ClassDetails*)(void*)(ptrdiff_t)referrer_class_tag;
+		//	stdout_message("^^^^^^^^^^^^^^^^^^^^^^ %d %s %ld %ld\n", reference_kind, getClassSignature(d), (*tag_ptr), princ->tag);		
+		//}
 		switch(reference_kind) {
 			case JVMTI_HEAP_REFERENCE_JNI_LOCAL:
 			case JVMTI_HEAP_REFERENCE_OTHER:
@@ -179,22 +177,21 @@ jint JNICALL callback_single_thread
 				if (reference_info->stack_local.thread_tag != princ->tag)
 					return 0;
 			default:
-				if (!strcmp(className, "Ljava/lang/Class;")) {
+				if (isClassClass(d)) {
 					// it's a class object. I have to discover if I already visited it
 					if ((*tag_ptr) == 0) {
 						return 0;			
 					}
 					
 					d = (ClassDetails*)(void*)(ptrdiff_t)(*tag_ptr);
-					if (!isClassVisited(d)) {						
-						if (!isSystemClass(getClassSignature(d))) {
-							setClassInfoVisited(d, JNI_TRUE);						
-							stdout_message("Clase de mierda %s, ref_kind %d\n", getClassSignature(d), reference_kind);							
-							d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
-							d->count++;
-							d->space += (int)size;							
-							return JVMTI_VISIT_OBJECTS;
-						}
+					if (!isClassVisited(d)
+							&& !isSystemClass(getClassSignature(d))) {						
+						setClassInfoVisited(d, JNI_TRUE);						
+						stdout_message("Clase de mierda %s, ref_kind %d\n", getClassSignature(d), reference_kind);							
+						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
+						d->count++;
+						d->space += (int)size;							
+						return JVMTI_VISIT_OBJECTS;
 					}
 					return 0;
 				}
