@@ -23,7 +23,7 @@ jint JNICALL callback_all_alive_objects
 		char* className = getClassSignature(d);
 		if (isClassClass(d)) {
 			// it's a class object. I have to discover if I already visited it
-			if (!isTagged(princ, (*tag_ptr))) {
+			if (!isTagged( (*tag_ptr))) {
 				//fatal_error("Oups, a class object with null tag\n");
 				//stdout_message("MIERDA\n");
 				return 0;			
@@ -39,13 +39,13 @@ jint JNICALL callback_all_alive_objects
 			}
 			return 0;
 		}
-		else if (isTagged(princ, (*tag_ptr))) {
+		else if (isTagged((*tag_ptr))) {
 			// it is a tagged thread, or
 			// it is an object already visited by this resource principal, or
 			// it is an object already visited for another resource principal in this iteration
 			return 0; // ignore it		
 		}
-		else if (!isTagged(princ, (*tag_ptr))) {
+		else if (!isTagged( (*tag_ptr))) {
 			// It it neither a class object nor an object I already visited, so follow references and account of it
         	d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
         	d->count++;

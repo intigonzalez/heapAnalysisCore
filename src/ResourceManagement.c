@@ -51,8 +51,14 @@ removeTags(jvmtiEnv* jvmti)
 }
 
 jboolean
-isTagged(ResourcePrincipal* p, jlong t)
+isTagged(jlong t)
 {
 	return t != 0;
+}
+
+jboolean
+isTaggedByPrincipal(jlong t, ResourcePrincipal* p)
+{
+	return t!=0 && t == p->tag;
 }
 

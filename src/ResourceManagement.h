@@ -47,7 +47,8 @@ void setClassInfoVisited(ClassDetails* d, jboolean b);
 jboolean isClassClass(ClassDetails* d);
 
 /*Operation related to object tagging*/
-jboolean isTagged(ResourcePrincipal* p, jlong t);
+jboolean isTagged(jlong t);
+jboolean isTaggedByPrincipal(jlong t, ResourcePrincipal* p);
 void removeTags(jvmtiEnv* jvmti);
 
 #endif

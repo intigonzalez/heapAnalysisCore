@@ -80,7 +80,7 @@ jint JNICALL callback_all_references
 			//case JVMTI_HEAP_REFERENCE_JNI_GLOBAL:
 			//					return 0;
 			case JVMTI_HEAP_REFERENCE_THREAD:
-				if ((*tag_ptr) != 0) // if tagged from another principal
+				if (isTagged(*tag_ptr)) // if tagged from another principal
 					return 0;		
 				d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 				d->count++;
@@ -88,12 +88,13 @@ jint JNICALL callback_all_references
 				*(tag_ptr) = princ->tag;
 				return JVMTI_VISIT_OBJECTS;
 			case JVMTI_HEAP_REFERENCE_STACK_LOCAL:
-				if (reference_info->stack_local.thread_tag != princ->tag) // if local variable from 
+				if (isTagged(reference_info->stack_local.thread_tag) && 
+						!isTaggedByPrincipal(reference_info->stack_local.thread_tag, princ)) // if tagged for a different principal 
 					return 0;
 			default:
 				if (isClassClass(d)) {
 					// it's a class object. I have to discover if I already visited it
-					if (!isTagged(princ, *tag_ptr)) {
+					if (!isTagged(*tag_ptr)) {
 						return 0;			
 					}
 					
@@ -111,13 +112,13 @@ jint JNICALL callback_all_references
 					}
 					return 0;
 				}
-				else if (isTagged(princ, *tag_ptr)) {
+				else if (isTagged(*tag_ptr)) {
 					// it is an object already visited by this resource principal, or
 					// it is an object already visited for another resource principal in this iteration
 					return 0; // ignore it		
 				}
 				else {
-					if (!isTagged(princ, *tag_ptr)) {
+					if (!isTagged(*tag_ptr)) {
 						// It it neither a class object nor an object I already visited, so follow references and account of it
 						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 						d->count++;
@@ -150,11 +151,6 @@ jint JNICALL callback_single_thread
 
 	if ( (class_tag != (jlong)0)) {
 		ClassDetails *d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
-		char* className = getClassSignature(d);
-		//if (!strcmp(className, "Ljava/net/URLClassLoader;") && reference_kind == 2) {
-		//	d = (ClassDetails*)(void*)(ptrdiff_t)referrer_class_tag;
-		//	stdout_message("^^^^^^^^^^^^^^^^^^^^^^ %d %s %ld %ld\n", reference_kind, getClassSignature(d), (*tag_ptr), princ->tag);		
-		//}
 		switch(reference_kind) {
 			case JVMTI_HEAP_REFERENCE_JNI_LOCAL:
 			case JVMTI_HEAP_REFERENCE_OTHER:
@@ -164,7 +160,7 @@ jint JNICALL callback_single_thread
 			//case 8: // don't follow static fields
 								return 0;
 			case JVMTI_HEAP_REFERENCE_THREAD:
-				if ((*tag_ptr) == princ->tag) {
+				if (isTaggedByPrincipal(*tag_ptr, princ)) {
 					d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 					d->count++;
 					d->space += (int)size;
@@ -172,12 +168,13 @@ jint JNICALL callback_single_thread
 				}
 				return 0;
 			case JVMTI_HEAP_REFERENCE_STACK_LOCAL:
-				if (reference_info->stack_local.thread_tag != princ->tag)
+				if (!isTagged(reference_info->stack_local.thread_tag) ||
+					!isTaggedByPrincipal(reference_info->stack_local.thread_tag, princ))
 					return 0;
 			default:
 				if (isClassClass(d)) {
 					// it's a class object. I have to discover if I already visited it
-					if (!isTagged(princ, *tag_ptr)) {
+					if (!isTagged(*tag_ptr)) {
 						return 0;			
 					}
 					
@@ -193,13 +190,13 @@ jint JNICALL callback_single_thread
 					}
 					return 0;
 				}
-				else if (isTagged(princ, *tag_ptr)) {
+				else if (isTagged(*tag_ptr)) {
 					// it is an object already visited by this resource principal, or
 					// it is an object already visited for another resource principal in this iteration
 					return 0; // ignore it		
 				}
 				else {
-					if (!isTagged(princ, *tag_ptr)) {
+					if (!isTagged(*tag_ptr)) {
 						// It it neither a class object nor an object I already visited, so follow references and account of it
 						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 						d->count++;
