@@ -139,7 +139,7 @@ heapanalysis.jar: HeapAnalysis.java Test.java
 
 # Cleanup the built bits
 clean:
-	rm -f $(LIBRARY) $(OBJECTS)
+	rm -f $(LIBRARY) $(OBJECTS) *.o *.so
 	rm -f *.jar *.class
 
 # Simple tester

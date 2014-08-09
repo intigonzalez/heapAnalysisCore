@@ -354,13 +354,13 @@ vmDeath(jvmtiEnv *jvmti, JNIEnv *env)
 
     /* Disable events and dump the heap information */
     enterAgentMonitor(jvmti); {
-		/*        
-		err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_DISABLE,
-                            JVMTI_EVENT_DATA_DUMP_REQUEST, NULL);
-        check_jvmti_error(jvmti, err, "set event notification");
+		        
+		//err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_DISABLE,
+        //                    JVMTI_EVENT_DATA_DUMP_REQUEST, NULL);
+        //check_jvmti_error(jvmti, err, "set event notification");
 
         dataDumpRequest(jvmti);
-		*/
+		
         gdata->vmDeathCalled = JNI_TRUE;
     } exitAgentMonitor(jvmti);
 }

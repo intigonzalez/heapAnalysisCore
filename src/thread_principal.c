@@ -80,7 +80,7 @@ jint JNICALL callback_all_references
 			//case JVMTI_HEAP_REFERENCE_JNI_GLOBAL:
 			//					return 0;
 			case JVMTI_HEAP_REFERENCE_THREAD:
-				if ((*tag_ptr) > princ->previous_iteration_tag) // if tagged from another principal
+				if ((*tag_ptr) != 0) // if tagged from another principal
 					return 0;		
 				d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 				d->count++;
@@ -88,7 +88,7 @@ jint JNICALL callback_all_references
 				*(tag_ptr) = princ->tag;
 				return JVMTI_VISIT_OBJECTS;
 			case JVMTI_HEAP_REFERENCE_STACK_LOCAL:
-				if ((reference_info->stack_local.thread_tag > princ->previous_iteration_tag 
+				if ((reference_info->stack_local.thread_tag != 0 
 						&& reference_info->stack_local.thread_tag != princ->tag)) // if local variable from 
 					return 0;
 			default:
@@ -113,13 +113,15 @@ jint JNICALL callback_all_references
 					return 0;
 				}
 				else if ((*tag_ptr) == princ->tag
-							|| (*tag_ptr) > princ->previous_iteration_tag) {
+							|| (*tag_ptr) != 0) {
 					// it is an object already visited by this resource principal, or
 					// it is an object already visited for another resource principal in this iteration
+					if ((*tag_ptr) != princ->tag)
+						stdout_message("Reallyyyyyyyyyyyyyyyyyyyyy? %ld %ld\n", princ->tag, (*tag_ptr));
 					return 0; // ignore it		
 				}
 				else {
-					if ((*tag_ptr) < princ->previous_iteration_tag) {
+					if ((*tag_ptr) == 0) {
 						// It it neither a class object nor an object I already visited, so follow references and account of it
 						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 						d->count++;
@@ -196,13 +198,13 @@ jint JNICALL callback_single_thread
 					return 0;
 				}
 				else if ((*tag_ptr) == princ->tag
-							|| (*tag_ptr) > princ->previous_iteration_tag) {
+							|| (*tag_ptr) != 0) {
 					// it is an object already visited by this resource principal, or
 					// it is an object already visited for another resource principal in this iteration
 					return 0; // ignore it		
 				}
 				else {
-					if ((*tag_ptr) < princ->previous_iteration_tag) {
+					if ((*tag_ptr) == 0) {
 						// It it neither a class object nor an object I already visited, so follow references and account of it
 						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 						d->count++;
@@ -299,7 +301,6 @@ jint createPrincipal_per_thread(jvmtiEnv* jvmti,
         for ( i = 0 ; i < count_classes ; i++ )
 			(*principals)[j].details[i].info = &infos[i];
 
-		(*principals)[j].previous_iteration_tag = tmp;
 		(*principals)[j].tag = nextInSequence();
 		(*principals)[j].strategy_to_explore = (j==0)?
 						(&followReferences_to_discard):(&explore_FollowReferences_Thread);

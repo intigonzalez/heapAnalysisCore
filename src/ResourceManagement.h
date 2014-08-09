@@ -26,7 +26,6 @@ typedef struct {
 /* Typedef to hold a Resource Principal  */
 typedef struct {
 	jlong tag;
-	jlong previous_iteration_tag;
 	int count_details;
 	ClassDetails* details;
 	void* strategy_to_explore;

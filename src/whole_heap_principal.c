@@ -51,7 +51,6 @@ jint  create_single_principal(jvmtiEnv* jvmti,
         for ( i = 0 ; i < count_classes ; i++ )
 			(*principals)[j].details[i].info = &infos[i];
 
-		(*principals)[j].previous_iteration_tag = tmp;
 		(*principals)[j].tag = nextInSequence();
 		(*principals)[j].strategy_to_explore = &explore_all_objects;
     }

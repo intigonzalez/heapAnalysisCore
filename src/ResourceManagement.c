@@ -31,9 +31,9 @@ static jint JNICALL
 cbRemovingTag(jlong class_tag, jlong size, jlong* tag_ptr, jint length,
            void* user_data)
 {
-	if ((*tag_ptr)) {
-		(*tag_ptr) = (jlong)0;		
-	}
+	//if ((*tag_ptr)) {
+	(*tag_ptr) = (jlong)0;		
+	//}
     return JVMTI_VISIT_OBJECTS;
 }
 
@@ -45,7 +45,7 @@ removeTags(jvmtiEnv* jvmti)
 	(void)memset(&heapCallbacks, 0, sizeof(heapCallbacks));
     heapCallbacks.heap_iteration_callback = &cbRemovingTag;
     err = (*jvmti)->IterateThroughHeap(jvmti,
-                    JVMTI_HEAP_FILTER_UNTAGGED | JVMTI_HEAP_FILTER_CLASS_UNTAGGED, NULL,
+                    JVMTI_HEAP_FILTER_UNTAGGED, NULL,
 	       	&heapCallbacks, NULL);
     check_jvmti_error(jvmti, err, "iterate through heap");
 }

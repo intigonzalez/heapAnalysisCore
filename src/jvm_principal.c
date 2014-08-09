@@ -40,13 +40,13 @@ jint JNICALL callback_all_alive_objects
 			return 0;
 		}
 		else if ((*tag_ptr) == princ->tag
-					|| (*tag_ptr) > princ->previous_iteration_tag) {
+					|| (*tag_ptr) != 0) {
 			// it is a tagged thread, or
 			// it is an object already visited by this resource principal, or
 			// it is an object already visited for another resource principal in this iteration
 			return 0; // ignore it		
 		}
-		else if ((*tag_ptr) < princ->previous_iteration_tag) {
+		else if ((*tag_ptr) == 0) {
 			// It it neither a class object nor an object I already visited, so follow references and account of it
         	d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
         	d->count++;
@@ -95,7 +95,6 @@ jint createPrincipal_WholeJVM(jvmtiEnv* jvmti,
         for ( i = 0 ; i < count_classes ; i++ )
 			(*principals)[j].details[i].info = &infos[i];
 
-		(*principals)[j].previous_iteration_tag = tmp;
 		(*principals)[j].tag = nextInSequence();
 		(*principals)[j].strategy_to_explore = &explore_FollowReferencesAll;
     }
