@@ -40,8 +40,7 @@ jint  create_single_principal(jvmtiEnv* jvmti,
 	jlong tmp;
 
 	count_principals = 1;
-	(*principals) = (ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), count_principals); 
-	tmp = getLastInSequence(); // tag for each principal        
+	(*principals) = (ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), count_principals);        
     for (j = 0 ; j < count_principals ; ++j) {
 		/* Setup an area to hold details about these classes */
 		(*principals)[j].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
@@ -51,7 +50,7 @@ jint  create_single_principal(jvmtiEnv* jvmti,
         for ( i = 0 ; i < count_classes ; i++ )
 			(*principals)[j].details[i].info = &infos[i];
 
-		(*principals)[j].tag = nextInSequence();
+		(*principals)[j].tag = (j+1);
 		(*principals)[j].strategy_to_explore = &explore_all_objects;
     }
 	return count_principals;

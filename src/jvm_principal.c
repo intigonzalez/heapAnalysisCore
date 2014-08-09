@@ -23,7 +23,7 @@ jint JNICALL callback_all_alive_objects
 		char* className = getClassSignature(d);
 		if (isClassClass(d)) {
 			// it's a class object. I have to discover if I already visited it
-			if ((*tag_ptr) == 0) {
+			if (!isTagged(princ, (*tag_ptr))) {
 				//fatal_error("Oups, a class object with null tag\n");
 				//stdout_message("MIERDA\n");
 				return 0;			
@@ -39,14 +39,13 @@ jint JNICALL callback_all_alive_objects
 			}
 			return 0;
 		}
-		else if ((*tag_ptr) == princ->tag
-					|| (*tag_ptr) != 0) {
+		else if (isTagged(princ, (*tag_ptr))) {
 			// it is a tagged thread, or
 			// it is an object already visited by this resource principal, or
 			// it is an object already visited for another resource principal in this iteration
 			return 0; // ignore it		
 		}
-		else if ((*tag_ptr) == 0) {
+		else if (!isTagged(princ, (*tag_ptr))) {
 			// It it neither a class object nor an object I already visited, so follow references and account of it
         	d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
         	d->count++;
@@ -84,18 +83,17 @@ jint createPrincipal_WholeJVM(jvmtiEnv* jvmti,
 	jlong tmp;
 
 	count_principals = 1;
-	(*principals) = (ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), count_principals); 
-	tmp = getLastInSequence(); // tag for each principal        
+	(*principals) = (ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), count_principals);       
     for (j = 0 ; j < count_principals ; ++j) {
 		/* Setup an area to hold details about these classes */
 		(*principals)[j].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
         if ( (*principals)[j].details == NULL ) 
-               	fatal_error("ERROR: Ran out of malloc space\n");
+            fatal_error("ERROR: Ran out of malloc space\n");
 
         for ( i = 0 ; i < count_classes ; i++ )
 			(*principals)[j].details[i].info = &infos[i];
 
-		(*principals)[j].tag = nextInSequence();
+		(*principals)[j].tag = (j+1);
 		(*principals)[j].strategy_to_explore = &explore_FollowReferencesAll;
     }
 	return count_principals;

@@ -50,23 +50,9 @@ removeTags(jvmtiEnv* jvmti)
     check_jvmti_error(jvmti, err, "iterate through heap");
 }
 
-
-
-/* to handle an infinite sequence*/
-
-typedef struct {
-	jlong n;
-} Sequence;
-
-Sequence globalSeq = {.n = 1};
-
-jlong getLastInSequence()
+jboolean
+isTagged(ResourcePrincipal* p, jlong t)
 {
-	return globalSeq.n;
-}
-
-jlong nextInSequence()
-{
-	return ++globalSeq.n;
+	return t != 0;
 }
 

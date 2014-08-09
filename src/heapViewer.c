@@ -249,7 +249,6 @@ dataDumpRequest(jvmtiEnv *jvmti)
 			}
 
 			// initial version
-			nextInSequence();
 			explorePrincipals(jvmti, // the environment  
 					count, // number of loaded classes 
 					classes, // loaded classes
@@ -258,7 +257,6 @@ dataDumpRequest(jvmtiEnv *jvmti)
 		   
 			// version Inti
 			stdout_message("Starting to explore all alive references\n");
-			nextInSequence();
 			explorePrincipals(jvmti,
 					count,
 					classes,
@@ -266,7 +264,6 @@ dataDumpRequest(jvmtiEnv *jvmti)
 					);
 
 			// Version2 : Inti
-			nextInSequence();
 			explorePrincipals(jvmti,
 					count,
 					classes,

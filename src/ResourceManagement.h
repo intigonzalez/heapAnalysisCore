@@ -47,10 +47,7 @@ void setClassInfoVisited(ClassDetails* d, jboolean b);
 jboolean isClassClass(ClassDetails* d);
 
 /*Operation related to object tagging*/
+jboolean isTagged(ResourcePrincipal* p, jlong t);
 void removeTags(jvmtiEnv* jvmti);
-
-/* Operation to handle an infinite sequence */
-jlong getLastInSequence();
-jlong nextInSequence();
 
 #endif

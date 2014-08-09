@@ -88,13 +88,12 @@ jint JNICALL callback_all_references
 				*(tag_ptr) = princ->tag;
 				return JVMTI_VISIT_OBJECTS;
 			case JVMTI_HEAP_REFERENCE_STACK_LOCAL:
-				if ((reference_info->stack_local.thread_tag != 0 
-						&& reference_info->stack_local.thread_tag != princ->tag)) // if local variable from 
+				if (reference_info->stack_local.thread_tag != princ->tag) // if local variable from 
 					return 0;
 			default:
 				if (isClassClass(d)) {
 					// it's a class object. I have to discover if I already visited it
-					if ((*tag_ptr) == 0) {
+					if (!isTagged(princ, *tag_ptr)) {
 						return 0;			
 					}
 					
@@ -112,16 +111,13 @@ jint JNICALL callback_all_references
 					}
 					return 0;
 				}
-				else if ((*tag_ptr) == princ->tag
-							|| (*tag_ptr) != 0) {
+				else if (isTagged(princ, *tag_ptr)) {
 					// it is an object already visited by this resource principal, or
 					// it is an object already visited for another resource principal in this iteration
-					if ((*tag_ptr) != princ->tag)
-						stdout_message("Reallyyyyyyyyyyyyyyyyyyyyy? %ld %ld\n", princ->tag, (*tag_ptr));
 					return 0; // ignore it		
 				}
 				else {
-					if ((*tag_ptr) == 0) {
+					if (!isTagged(princ, *tag_ptr)) {
 						// It it neither a class object nor an object I already visited, so follow references and account of it
 						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 						d->count++;
@@ -181,7 +177,7 @@ jint JNICALL callback_single_thread
 			default:
 				if (isClassClass(d)) {
 					// it's a class object. I have to discover if I already visited it
-					if ((*tag_ptr) == 0) {
+					if (!isTagged(princ, *tag_ptr)) {
 						return 0;			
 					}
 					
@@ -189,7 +185,7 @@ jint JNICALL callback_single_thread
 					if (!isClassVisited(d)
 							&& !isSystemClass(getClassSignature(d))) {						
 						setClassInfoVisited(d, JNI_TRUE);						
-						stdout_message("Clase de mierda %s, ref_kind %d\n", getClassSignature(d), reference_kind);							
+						//stdout_message("Clase de mierda %s, ref_kind %d\n", getClassSignature(d), reference_kind);							
 						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 						d->count++;
 						d->space += (int)size;							
@@ -197,14 +193,13 @@ jint JNICALL callback_single_thread
 					}
 					return 0;
 				}
-				else if ((*tag_ptr) == princ->tag
-							|| (*tag_ptr) != 0) {
+				else if (isTagged(princ, *tag_ptr)) {
 					// it is an object already visited by this resource principal, or
 					// it is an object already visited for another resource principal in this iteration
 					return 0; // ignore it		
 				}
 				else {
-					if ((*tag_ptr) == 0) {
+					if (!isTagged(princ, *tag_ptr)) {
 						// It it neither a class object nor an object I already visited, so follow references and account of it
 						d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
 						d->count++;
@@ -266,7 +261,7 @@ jint createPrincipal_per_thread(jvmtiEnv* jvmti,
 	err = (*jvmti)->GetAllThreads(jvmti, &thread_count, &threads);
 	check_jvmti_error(jvmti, err, "get all threads");
 	count_principals = 1; 
-	tmp = getLastInSequence(); // tag for each principal
+	tmp = 0;
 	for (i = 0 ; i < thread_count ; ++i) {
 		char  tname[255];
 
@@ -301,7 +296,7 @@ jint createPrincipal_per_thread(jvmtiEnv* jvmti,
         for ( i = 0 ; i < count_classes ; i++ )
 			(*principals)[j].details[i].info = &infos[i];
 
-		(*principals)[j].tag = nextInSequence();
+		(*principals)[j].tag = (++tmp);
 		(*principals)[j].strategy_to_explore = (j==0)?
 						(&followReferences_to_discard):(&explore_FollowReferences_Thread);
 
