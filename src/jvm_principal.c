@@ -18,21 +18,17 @@ jint JNICALL callback_all_alive_objects
 
 	// the class has a tag
 	if ( (class_tag != (jlong)0)) {
-		ClassDetails *d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
+		ClassDetails *d = (ClassDetails*)getDataFromTag(class_tag);
 		
 		char* className = getClassSignature(d);
 		if (isClassClass(d)) {
 			// it's a class object. I have to discover if I already visited it
-			if (!isTagged( (*tag_ptr))) {
-				//fatal_error("Oups, a class object with null tag\n");
-				//stdout_message("MIERDA\n");
-				return 0;			
-			}
+			if ((*tag_ptr) == 0) return 0;			
 
-        	d = (ClassDetails*)(void*)(ptrdiff_t)(*tag_ptr);
-			if (!isClassVisited(d)) {
-				setClassInfoVisited(d, JNI_TRUE);
-				d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
+        	d = (ClassDetails*)getDataFromTag(*tag_ptr);
+			if (!isTagged(*tag_ptr)) {
+				attachToPrincipal(*tag_ptr, princ);
+				d = (ClassDetails*)getDataFromTag(class_tag);
         		d->count++;
         		d->space += (int)size;
 				return JVMTI_VISIT_OBJECTS;
@@ -47,10 +43,10 @@ jint JNICALL callback_all_alive_objects
 		}
 		else if (!isTagged( (*tag_ptr))) {
 			// It it neither a class object nor an object I already visited, so follow references and account of it
-        	d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
+        	d = (ClassDetails*)getDataFromTag(class_tag);
         	d->count++;
         	d->space += (int)size;
-			*tag_ptr = princ->tag;	
+			*tag_ptr = tagForObject(princ);	
 			return JVMTI_VISIT_OBJECTS;
 		}
 		

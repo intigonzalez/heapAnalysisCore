@@ -8,8 +8,7 @@ cbHeapObject(jlong class_tag, jlong size, jlong* tag_ptr, jint length,
     if ( class_tag != (jlong)0 ) {
         ClassDetails *d;
 
-        d = (ClassDetails*)(void*)(ptrdiff_t)class_tag;
-        //(*((jint*)(user_data)))++;
+        d = (ClassDetails*)getDataFromTag(class_tag);
         d->count++;
         d->space += (int)size;
     }

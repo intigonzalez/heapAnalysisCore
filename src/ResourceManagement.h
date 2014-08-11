@@ -13,7 +13,6 @@
 typedef struct {
 	char* signature;
 	jboolean is_clazz_clazz;
-	jboolean visited;
 } ClassInfo;
 
 /* Typedef to hold class details */
@@ -31,6 +30,11 @@ typedef struct {
 	void* strategy_to_explore;
 } ResourcePrincipal;
 
+typedef struct {
+	jint tag;
+	void* user_data;
+} ObjectTag;
+
 
 typedef void (*LocalExploration) 
 	(jvmtiEnv* jvmti, ResourcePrincipal* principal);
@@ -42,13 +46,16 @@ typedef jint (*CreatePrincipals)
 
 /* Operations to get info from classes*/
 char* getClassSignature(ClassDetails* d);
-jboolean isClassVisited(ClassDetails* d);
-void setClassInfoVisited(ClassDetails* d, jboolean b);
 jboolean isClassClass(ClassDetails* d);
 
 /*Operation related to object tagging*/
 jboolean isTagged(jlong t);
 jboolean isTaggedByPrincipal(jlong t, ResourcePrincipal* p);
 void removeTags(jvmtiEnv* jvmti);
+jlong tagForObject(ResourcePrincipal* p);
+jlong tagForObjectWithData(ResourcePrincipal* p, void* ud);
+void* getDataFromTag(jlong tag);
+void setUserDataForTag(jlong tag, void* ud);
+void attachToPrincipal(jlong tag, ResourcePrincipal* p);
 
 #endif

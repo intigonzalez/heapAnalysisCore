@@ -168,19 +168,24 @@ void explorePrincipals(
     // Step 1
 	/* Allocate space to hold the details */
 	count_principals = createPrincipals(jvmti, &principals, gdata->info_classes , count_classes);
-	for ( i = 0 ; i < count_classes ; i++ )
-		gdata->info_classes[i].visited = JNI_FALSE;
-
     // Step 2 (Empty if the resource principal is the whole JVM)
 	
     // Step 3
+
+	for ( i = 0 ; i < count_classes ; i++ ) {
+           	/* Tag this jclass */
+           	err = (*jvmti)->SetTag(jvmti, classes[i],
+                          tagForObject(NULL));
+           	check_jvmti_error(jvmti, err, "set object tag");
+   	}
     for (j = 0 ; j < count_principals ; ++j) {
     	// step 3.1	
        	for ( i = 0 ; i < count_classes ; i++ ) {
+				jlong t_ptr;
                	/* Tag this jclass */
-               	err = (*jvmti)->SetTag(jvmti, classes[i],
-                              (jlong)(ptrdiff_t)(void*)(&(principals[j].details[i])));
+               	err = (*jvmti)->GetTag(jvmti, classes[i], &t_ptr);
                	check_jvmti_error(jvmti, err, "set object tag");
+				setUserDataForTag(t_ptr, &(principals[j].details[i]));
        	}
 
 		// step 3.2 (Empty because all the roots are valid)
@@ -191,10 +196,11 @@ void explorePrincipals(
 		printTable(principals[j].details, count_classes);
 		// step 3.5
 	   	for ( i = 0 ; i < count_classes ; i++ ) {
-	       	/* Untag this jclass */
-	       	err = (*jvmti)->SetTag(jvmti, classes[i],
-	                      (jlong)0);
-	       	check_jvmti_error(jvmti, err, "set object tag");
+	       	jlong t_ptr;
+           	/* Tag this jclass */
+           	err = (*jvmti)->GetTag(jvmti, classes[i], &t_ptr);
+           	check_jvmti_error(jvmti, err, "set object tag");
+			setUserDataForTag(t_ptr, NULL);
 	   	}
     }
     // step 4

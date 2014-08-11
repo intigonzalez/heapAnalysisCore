@@ -8,16 +8,6 @@ char* getClassSignature(ClassDetails* d)
 	return d->info->signature;
 }
 
-jboolean isClassVisited(ClassDetails* d)
-{
-	return d->info->visited;
-}
-
-void setClassInfoVisited(ClassDetails* d, jboolean b)
-{
-	d->info->visited = b;
-}
-
 /* return true iff the className == Ljava/lang/Class; */
 jboolean isClassClass(ClassDetails* d)
 {
@@ -31,9 +21,10 @@ static jint JNICALL
 cbRemovingTag(jlong class_tag, jlong size, jlong* tag_ptr, jint length,
            void* user_data)
 {
-	//if ((*tag_ptr)) {
-	(*tag_ptr) = (jlong)0;		
-	//}
+	if ((*tag_ptr)) {
+		free((void*)(ptrdiff_t)(*tag_ptr));
+		(*tag_ptr) = (jlong)0;		
+	}
     return JVMTI_VISIT_OBJECTS;
 }
 
@@ -53,12 +44,60 @@ removeTags(jvmtiEnv* jvmti)
 jboolean
 isTagged(jlong t)
 {
-	return t != 0;
+	static int x = 0;
+	//return t != 0;
+	ObjectTag* tag;
+	if (t == 0) return JNI_FALSE;
+	tag = (ObjectTag*)(void*)(ptrdiff_t)t;
+	return tag->tag != 0; // tag!=0 && tag->tag != 0; hence, !(tag!=0 && tag->tag != 0) the same as (tag == 0 || tag->tag == 0)
 }
 
 jboolean
 isTaggedByPrincipal(jlong t, ResourcePrincipal* p)
 {
-	return t!=0 && t == p->tag;
+	ObjectTag* tag;
+	if (t == 0) return JNI_FALSE;
+	tag = (ObjectTag*)(void*)(ptrdiff_t)t;
+	return tag->tag == p->tag;
+}
+
+jlong
+tagForObject(ResourcePrincipal* p)
+{
+	ObjectTag* t = (ObjectTag*)calloc(sizeof(ObjectTag),1);
+	if (p) {
+		t->tag = p->tag;	
+	}
+	return (jlong)t;
+}
+
+jlong
+tagForObjectWithData(ResourcePrincipal* p, void* ud)
+{
+	ObjectTag* t;
+	jlong l = tagForObject(p);
+	t = (ObjectTag*)(void*)(ptrdiff_t)l;
+	t->user_data = ud;
+	return l;
+}
+
+void* getDataFromTag(jlong tag)
+{
+	ObjectTag* t = (ObjectTag*)(void*)(ptrdiff_t)tag;
+	return t->user_data;
+}
+
+void
+setUserDataForTag(jlong tag, void* ud)
+{
+	ObjectTag* t = (ObjectTag*)(void*)(ptrdiff_t)tag;
+	t->user_data = ud;
+}
+
+void
+attachToPrincipal(jlong tag, ResourcePrincipal* p)
+{
+	ObjectTag* t = (ObjectTag*)(void*)(ptrdiff_t)tag;
+	t->tag = p->tag;
 }
 
