@@ -42,8 +42,8 @@
 ########################################################################
 
 # Source lists
-LIBNAME=heapViewer
-SOURCES=heapViewer.c agent_util.c ResourceManagement.c
+LIBNAME=basicPlugin
+SOURCES=basicPlugin.c
 
 # Solaris Sun C Compiler Version 5.5
 ifeq ($(OSNAME), solaris)
@@ -90,9 +90,9 @@ ifeq ($(OSNAME), linux)
     OBJECTS=$(SOURCES:%.c=%.o)
     # Library name and options needed to build it
     LIBRARY=lib$(LIBNAME).so
-    LDFLAGS=-Wl,-soname=$(LIBRARY) -static-libgcc
+    LDFLAGS=-Wl,-soname=$(LIBRARY) -static-libgcc -L..
     # Libraries we are dependent on
-    LIBRARIES=-lc -ldl
+    LIBRARIES=-lc -lheapViewer
     # Building a shared library
     LINK_SHARED=$(LINK.c) -shared -o $@
 endif
@@ -124,51 +124,22 @@ endif
 CFLAGS += -I.
 CFLAGS += -I$(JDK)/include -I$(JDK)/include/$(OSNAME)
 
+PATH_TMP=$(LIBNAME)/$(LIBRARY)
+
 # Default rule
-all: $(LIBRARY) heapanalysis.jar
+all: $(LIBRARY)
 
 # Build native library
 $(LIBRARY): $(OBJECTS)
 	$(LINK_SHARED) $(OBJECTS) $(LIBRARIES)
 
-# Jar file
-heapanalysis.jar: AnalysisType.java HeapAnalysis.java Test.java Test2.java
-	javac AnalysisType.java
-	javac HeapAnalysis.java
-	javac Test.java
-	#javac Test2.java
-	jar cf heapanalysis.jar HeapAnalysis.class AnalysisType.class
-
-#plugins
-plugins:
-	cd basicPlugin && $(MAKE)
-	cd whole_heap && $(MAKE)
-	cd jvm_principal && $(MAKE)
-	cd thread_principal && $(MAKE)
-	cd threadgroup_principal && $(MAKE)
-
-#install plugins
-installplugins:
-	rm config.ini
-	cd basicPlugin && $(MAKE) install
-	cd whole_heap && $(MAKE) install
-	cd jvm_principal && $(MAKE) install
-	cd thread_principal && $(MAKE) install
-	cd threadgroup_principal && $(MAKE) install
+# install plugin
+install:	
+	echo $(PATH_TMP) >> ../config.ini
 
 # Cleanup the built bits
 clean:
 	rm -f $(LIBRARY) $(OBJECTS) *.o *.so
-	rm -f *.jar *.class
-	cd basicPlugin && $(MAKE) clean
-	cd whole_heap && $(MAKE) clean
-	cd jvm_principal && $(MAKE) clean 
-	cd thread_principal && $(MAKE) clean 
-	cd threadgroup_principal && $(MAKE) clean
-
-# Simple tester
-test: all
-	LD_LIBRARY_PATH=`pwd` $(JDK)/bin/java -agentlib:$(LIBNAME) -version
 
 # Compilation rule only needed on Windows
 ifeq ($(OSNAME), win32)

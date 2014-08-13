@@ -1,4 +1,10 @@
-#include "whole_heap_principal.h"
+#include <stdio.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#include "../plugins.h"
 
 /* Heap object callback */
 static jint JNICALL
@@ -27,10 +33,11 @@ void explore_all_objects(
     err = (*jvmti)->IterateThroughHeap(jvmti,
                     JVMTI_HEAP_FILTER_CLASS_UNTAGGED, NULL,
 	       	&heapCallbacks, NULL);
-    check_jvmti_error(jvmti, err, "iterate through heap");
+    check_jvmti_error(jvmti, err, "iterate through heap"); 
 }
 
-jint  create_single_principal(jvmtiEnv* jvmti, 
+/* create principals */
+jint  createPrincipal(jvmtiEnv* jvmti, 
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
 	jint count_principals;
@@ -53,4 +60,15 @@ jint  create_single_principal(jvmtiEnv* jvmti,
 		(*principals)[j].strategy_to_explore = &explore_all_objects;
     }
 	return count_principals;
+}
+
+/** Fill a structure with the infomation about the plugin 
+* Returns 0 if everything was OK, a negative value otherwise	
+*/
+int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
+{
+	r->name = "whole_heap_exploration";
+	r->description = "This plugin calculates the number of objects of each class within the whole JVM. It returns boths, alive and dead objects";
+	r->createPrincipals = &createPrincipal;
+	return 0;
 }

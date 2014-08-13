@@ -24,6 +24,7 @@ typedef struct {
 
 /* Typedef to hold a Resource Principal  */
 typedef struct {
+	char* name;
 	jlong tag;
 	int count_details;
 	ClassDetails* details;

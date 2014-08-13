@@ -42,16 +42,19 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+
+#include <dlfcn.h>
 
 #include "jni.h"
 #include "jvmti.h"
 
 #include "agent_util.h"
 #include "ResourceManagement.h"
+#include "plugins.h"
 
-#include "thread_principal.h"
-#include "jvm_principal.h"
-#include "whole_heap_principal.h"
+
+#define MAX_NUMBER_OF_PLUGINS 100
 
 /* Global static data */
 typedef struct {
@@ -60,6 +63,9 @@ typedef struct {
     jboolean      dumpInProgress;
     jrawMonitorID lock;
     ClassInfo* info_classes;
+	FILE* f;
+	jint nbPlugins;
+	HeapAnalyzerPlugin plugins[MAX_NUMBER_OF_PLUGINS];
 } GlobalData;
 static GlobalData globalData, *gdata = &globalData;
 
@@ -192,7 +198,8 @@ void explorePrincipals(
 		// step 3.3
 		/* Iterate through the heap and count up uses of jclass */
 		((LocalExploration)(principals[j].strategy_to_explore))(jvmti,  &principals[j]);
-		// step 3.4 
+		// step 3.4
+		stdout_message("=> PRINTING INFO FOR: %s\n", principals[j].name);
 		printTable(principals[j].details, count_classes);
 		// step 3.5
 	   	for ( i = 0 ; i < count_classes ; i++ ) {
@@ -215,11 +222,14 @@ void explorePrincipals(
 	stdout_message("\n=========================================\n Elapsed time: %lf microseconds\n=========================================\n", elapsed);
 }
 
-/* Callback for JVMTI_EVENT_DATA_DUMP_REQUEST (Ctrl-\ or at exit) */
+#define WHOLE_JVM_ANALYSIS 1
+#define ALIVE_OBJECTS_ANALYSIS 2
+#define PER_THREAD_ANALYSIS 4
+#define PER_THREAD_GROUP_ANALYSIS 8
+
 static void JNICALL
-dataDumpRequest(jvmtiEnv *jvmti)
-{
-    enterAgentMonitor(jvmti); {
+do_analysis(jvmtiEnv *jvmti, int id) {
+	enterAgentMonitor(jvmti); {
         if (!gdata->vmDeathCalled && !gdata->dumpInProgress ) {
             jvmtiError         err;
             jclass            *classes;
@@ -254,27 +264,52 @@ dataDumpRequest(jvmtiEnv *jvmti)
 				deallocate(jvmti, sig);
 			}
 
-			// initial version
-			explorePrincipals(jvmti, // the environment  
-					count, // number of loaded classes 
-					classes, // loaded classes
-					&create_single_principal // strategy to create principals
-					); 
-		   
-			// version Inti
-			stdout_message("Starting to explore all alive references\n");
-			explorePrincipals(jvmti,
-					count,
-					classes,
-					&createPrincipal_WholeJVM // strategy to create principals
-					);
 
-			// Version2 : Inti
-			explorePrincipals(jvmti,
-					count,
-					classes,
-					&createPrincipal_per_thread // strategy to create principals
-					);
+			if (id < gdata->nbPlugins) {
+				
+				stdout_message("Starting to explore\n");
+				explorePrincipals(jvmti, // the environment  
+						count, // number of loaded classes 
+						classes, // loaded classes
+						gdata->plugins[id].createPrincipals // strategy to create principals
+						);
+			}
+			/*if (types & WHOLE_JVM_ANALYSIS) {
+				stdout_message("Starting to explore THE WHOLE HEAP\n");
+				explorePrincipals(jvmti, // the environment  
+						count, // number of loaded classes 
+						classes, // loaded classes
+						&create_single_principal // strategy to create principals
+						);
+			}
+		   
+			if (types & ALIVE_OBJECTS_ANALYSIS) {
+				stdout_message("Starting to explore all ALIVE REFERENCES\n");
+				explorePrincipals(jvmti,
+						count,
+						classes,
+						&createPrincipal_WholeJVM // strategy to create principals
+						);
+			}
+
+			if (types & PER_THREAD_ANALYSIS) {
+				stdout_message("Starting to explore REFERENCES PER THREAD\n");
+				explorePrincipals(jvmti,
+						count,
+						classes,
+						&createPrincipal_per_thread // strategy to create principals
+						);
+			}
+
+			if (types & PER_THREAD_GROUP_ANALYSIS) {
+				stdout_message("Starting to explore REFERENCES PER THREAD GROUP\n");
+				explorePrincipals(jvmti,
+						count,
+						classes,
+						&createPrincipal_per_threadgroup // strategy to create principals
+						);
+			}
+			*/
 
 		    /* Free up all allocated space */
 		    deallocate(jvmti, classes);
@@ -290,11 +325,65 @@ dataDumpRequest(jvmtiEnv *jvmti)
     } exitAgentMonitor(jvmti);
 }
 
-/* Java Native Method for entry */
-static void
-HEAPANALYSIS_native_analysis(JNIEnv *env, jclass klass)
+/* Callback for JVMTI_EVENT_DATA_DUMP_REQUEST (Ctrl-\ or at exit) */
+static void JNICALL
+dataDumpRequest(jvmtiEnv *jvmti)
 {
-	dataDumpRequest(gdata->jvmti);
+    do_analysis(jvmti, PER_THREAD_ANALYSIS | ALIVE_OBJECTS_ANALYSIS | WHOLE_JVM_ANALYSIS);
+}
+
+/* Java Native Method for analysis */
+static void JNICALL
+HEAPANALYSIS_native_analysis(JNIEnv *env, jclass klass, jint types)
+{
+	jint count;
+	jthread* threads;
+	jvmtiError err;
+	jvmtiError* results;
+	int i;
+	
+	do_analysis(gdata->jvmti, types);
+}
+
+/* Java Native Method for count_of_analysis */
+static jint JNICALL
+HEAPANALYSIS_native_count_of_analysis(JNIEnv *env, jclass klass)
+{
+	jint r;
+	enterAgentMonitor(gdata->jvmti); {
+		r = gdata->nbPlugins;
+	} exitAgentMonitor(gdata->jvmti);
+	return r;
+}
+
+/* Java Native Method for getAnalysis */
+static jobject JNICALL
+HEAPANALYSIS_native_getAnalysis(JNIEnv *env, jclass klass, jint index)
+{
+	//enterAgentMonitor(gdata->jvmti); {
+	if (index < 0 || index >= gdata->nbPlugins) {
+		// throw exception	
+		return NULL;	
+	}
+	else {
+		jmethodID cnstrctr;
+		jstring name;
+		jstring desc;
+    	jclass c = (*env)->FindClass(env, "AnalysisType");
+    	if (c == 0) {
+        	// throw exception	
+			return NULL;
+     	}
+		cnstrctr = (*env)->GetMethodID(env, c, "<init>", "(ILjava/lang/String;Ljava/lang/String;)V");
+    	if (cnstrctr == 0) {
+        	// throw exception	
+			return NULL;
+    	}
+		name = (*env)->NewStringUTF(env, gdata->plugins[index].name);
+		desc = (*env)->NewStringUTF(env, gdata->plugins[index].description);
+		return (*env)->NewObject(env, c, cnstrctr, index, name, desc);
+	}
+	//} exitAgentMonitor(gdata->jvmti);
 }
 
 /* Callback for JVMTI_EVENT_VM_START */
@@ -307,9 +396,14 @@ cbVMStart(jvmtiEnv *jvmti, JNIEnv *env)
         int      rc;
 
         /* Java Native Methods for class */
-        static JNINativeMethod registry[1] = {
-            {"analysis", "()V",
-                (void*)&HEAPANALYSIS_native_analysis}
+        static JNINativeMethod registry[3] = {
+            {"analysis", "(I)V",
+                (void*)&HEAPANALYSIS_native_analysis},
+			{"count_of_analysis", "()I",
+                (void*)&HEAPANALYSIS_native_count_of_analysis},
+			{"getAnalysis", "(I)LAnalysisType;",
+                (void*)&HEAPANALYSIS_native_getAnalysis},
+			
         };
 
         /* The VM has started. */
@@ -321,11 +415,13 @@ cbVMStart(jvmtiEnv *jvmti, JNIEnv *env)
             fatal_error("ERROR: JNI: Cannot find %s with FindClass\n",
                         "HeapAnalysis");
         }
-        rc = (*env)->RegisterNatives(env, klass, registry, 1);
+        rc = (*env)->RegisterNatives(env, klass, registry, 3);
         if ( rc != 0 ) {
             fatal_error("ERROR: JNI: Cannot register native methods for %s\n",
                         "HeapAnalysis");
         }
+
+		stdout_message("VMStart DONE\n");
 
     } exitAgentMonitor(jvmti);
 }
@@ -380,6 +476,40 @@ add_demo_jar_to_bootclasspath2(jvmtiEnv *jvmti, char *demo_name)
     check_jvmti_error(jvmti, error, "Cannot add to boot classpath");
 }
 
+/*
+	Load the plugins declared in the configuration file
+*/
+static void
+loadPlugins(const char* configFile)
+{
+	FILE* f;
+	char buffer[255];
+	if ((f = fopen(configFile, "r")) == NULL) {
+		// no plugins to load	
+		fprintf(stderr, "Error %d:%s opening the file\n", errno, strerror(errno));
+		return;
+	}
+	while (fgets (buffer, sizeof(buffer), f)) {
+		void *handle;
+		PluginDeclareFunction declarePlugin;
+		int n = strlen(buffer);
+		if (buffer[n-1] == '\n') buffer[n-1] = 0;
+    	stdout_message("Loading plugin: %s\n", buffer);		
+		handle = dlopen(buffer, RTLD_NOW | RTLD_LOCAL);
+		if (!handle) {
+        	fprintf(stderr, "Error loading the plugin: %s\n", dlerror());
+        	continue;
+    	}
+		dlerror();    /* Clear any existing error */
+		
+		*(void **) (&declarePlugin) = dlsym(handle, "declarePlugin"); // do you really get this cast? hahahahaha
+		(*declarePlugin)(&gdata->plugins[gdata->nbPlugins]);
+		//stdout_message("Plugin Name: %s\nPlugin Description: %s\n", gdata->plugins[gdata->nbPlugins].name, gdata->plugins[gdata->nbPlugins].description);
+		gdata->nbPlugins++;
+  	}
+	fclose(f);
+}
+
 
 /* Agent_OnLoad() is called first, we prepare for a VM_INIT event here. */
 JNIEXPORT jint JNICALL
@@ -390,6 +520,16 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     jvmtiCapabilities   capabilities;
     jvmtiEventCallbacks callbacks;
     jvmtiEnv           *jvmti;
+
+	gdata->f = stdout;
+	if (options != NULL && strlen(options) > 0) {
+		gdata->f = fopen(options, "w");
+		stdout_message("This is shit %d\n", 1);
+	}
+
+	gdata->nbPlugins = 0;
+	loadPlugins("config.ini");
+	
 
     /* Get JVMTI environment */
     jvmti = NULL;
@@ -409,6 +549,7 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     (void)memset(&capabilities, 0, sizeof(capabilities));
     capabilities.can_tag_objects = 1;
     capabilities.can_generate_garbage_collection_events = 1;
+	capabilities.can_suspend = 1;
     err = (*jvmti)->AddCapabilities(jvmti, &capabilities);
     check_jvmti_error(jvmti, err, "add capabilities");
 
@@ -446,4 +587,5 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 JNIEXPORT void JNICALL
 Agent_OnUnload(JavaVM *vm)
 {
+	fclose(gdata->f);
 }

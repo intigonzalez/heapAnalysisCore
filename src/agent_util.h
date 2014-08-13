@@ -54,7 +54,8 @@
 extern "C" {
 #endif
 
-void  stdout_message(const char * format, ...);
+#define stdout_message(format, ...) fprintf(gdata->f, format, ##__VA_ARGS__);
+
 void  fatal_error(const char * format, ...);
 char *get_token(char *str, char *seps, char *buf, int max);
 int   interested(char *cname, char *mname,

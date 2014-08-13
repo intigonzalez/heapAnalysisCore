@@ -43,16 +43,6 @@
 /* ------------------------------------------------------------------- */
 /* Generic C utility functions */
 
-/* Send message to stdout or whatever the data output location is */
-void
-stdout_message(const char * format, ...)
-{
-    va_list ap;
-
-    va_start(ap, format);
-    (void)vfprintf(stdout, format, ap);
-    va_end(ap);
-}
 
 /* Send message to stderr or whatever the error output location is and exit  */
 void

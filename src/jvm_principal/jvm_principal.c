@@ -1,5 +1,12 @@
 
-#include "jvm_principal.h"
+#include <stdio.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#include "../plugins.h"
+
 
 /* Callback for HeapReferences in FollowReferences (Shows alive objects in the whole JVM) */
 static
@@ -70,7 +77,7 @@ explore_FollowReferencesAll(
     check_jvmti_error(jvmti, err, "iterate through heap");
 }
 
-jint createPrincipal_WholeJVM(jvmtiEnv* jvmti, 
+jint createPrincipal(jvmtiEnv* jvmti, 
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
 	jint count_principals;
@@ -93,4 +100,15 @@ jint createPrincipal_WholeJVM(jvmtiEnv* jvmti,
 		(*principals)[j].strategy_to_explore = &explore_FollowReferencesAll;
     }
 	return count_principals;
+}
+
+/** Fill a structure with the infomation about the plugin 
+* Returns 0 if everything was OK, a negative value otherwise	
+*/
+int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
+{
+	r->name = "all_alive_objects_exploration";
+	r->description = "This plugin calculates the number of objects of each class within the whole JVM. It returns only alive objects";
+	r->createPrincipals = &createPrincipal;
+	return 0;
 }

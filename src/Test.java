@@ -1,6 +1,6 @@
 import java.net.*;
 import java.io.*;
-import java.lang.reflect.Field;
+import java.lang.reflect.*;
 /**
  *
 */
@@ -44,20 +44,46 @@ public class Test {
 	private static final String ANALYSIS_COMMAND = "stats";
 
 	private static enum Command {
-		STATS("stats", "Calculate the statistics of each principal"),
-		EXIT("exit", "Exit the application");
+		STATS("stats", "Calculate the statistics of each principal", "stats ID_ANALYSIS"),
+		SHOW("show", "Show the type of analysis already installed", ""),
+		EXIT("exit", "Exit the application", "");
 		
 		String cmd;
 		String description;
+		String usage;
 
-		Command(String cmd, String desc) {
+		Command(String cmd, String desc, String usage) {
 			this.cmd = cmd;
 			this.description = desc;		
+			this.usage = usage;
 		}
 		
 		boolean is(String s) {
-			return s.equals(cmd);		
+			String[] stuff = s.split(" ");
+			return stuff[0].equals(cmd);		
 		}
+		
+		void printUsage() {
+			System.out.printf("USAGE FOR %s: %s\n", cmd, usage);		
+		}
+
+		static String[] arguments(String s) {
+			return s.split(" ");
+		}
+	}
+
+	private static void showAnalysisType() {
+		AnalysisType[] a = HeapAnalysis.getAnalysis();
+		for (int i = 0 ; i < a.length ; i++) {
+			System.out.printf("Analysis: %s\n\tID: %d\n\tDescription: ", a[i].name, a[i].id);  
+			String s = 	a[i].description;
+			int limit = 100;
+			while (s.length() > limit) {
+				System.out.println("\t" + s.substring(0, limit));	
+				s = s.substring(limit);	
+			}
+			System.out.println("\t" + s);
+		}	
 	}
 
 	public static void main(String[] args) throws Exception {
@@ -69,6 +95,7 @@ public class Test {
 		th.setContextClassLoader(loader);
 		th.setName("The guy");
 		th.start();
+		
 		Thread1 th2 = new Thread1();
 		URLClassLoader loader2 = new URLClassLoader(new URL[]{new File("Th1/").toURI().toURL()});
 		th2.t = 9999;
@@ -76,13 +103,22 @@ public class Test {
 		th2.setContextClassLoader(loader2);		
 		th2.setName("The guy");
 		th2.start();
+
+		// console
 		System.out.printf("Started an running\n");
 		BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
 		System.out.printf("> ");
 		String line = reader.readLine();
 		while (line != null) {
 			if (Command.STATS.is(line)) {
-				HeapAnalysis.analysis();
+				String[] argsCmd = Command.arguments(line);
+				if (argsCmd.length > 1 ) {
+					HeapAnalysis.analysis(Integer.parseInt(argsCmd[1]));
+				}
+				else Command.STATS.printUsage();
+			}
+			else if (Command.SHOW.is(line)) {
+				showAnalysisType();
 			}
 			else if(Command.EXIT.is(line))
 				System.exit(0);

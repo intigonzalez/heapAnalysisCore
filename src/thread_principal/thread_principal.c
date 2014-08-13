@@ -1,5 +1,11 @@
 
-#include "thread_principal.h"
+#include <stdio.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#include "../plugins.h"
 
 
 /* Get a name for a jthread */
@@ -234,7 +240,8 @@ followReferences_to_discard(
 }
 
 /* create principals */
-jint createPrincipal_per_thread(jvmtiEnv* jvmti, 
+static
+jint createPrincipal(jvmtiEnv* jvmti, 
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
 	jint count_principals, thread_count;
@@ -270,44 +277,57 @@ jint createPrincipal_per_thread(jvmtiEnv* jvmti,
 	j = 1;
 
 	for (i = 0 ; i < thread_count ; ++i) {
+		jvmtiThreadInfo t_info;
 		char  tname[255];
 
         get_thread_name(jvmti, threads[i], tname, sizeof(tname));
-        if (!strcmp(tname, "The guy")) {
-			jvmtiThreadInfo th_info;
-			
-			/* Setup an area to hold details about these classes */
-			(*principals)[j].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
-		    if ( (*principals)[j].details == NULL ) 
-		           	fatal_error("ERROR: Ran out of malloc space\n");
 
-		    for ( k = 0 ; k < count_classes ; k++ )
-				(*principals)[j].details[k].info = &infos[k];
+		if (strcmp(tname, "The guy")) continue;
 
-			
-			(*principals)[j].strategy_to_explore = &explore_FollowReferences_Thread;
-			(*principals)[j].tag = (jlong)(j+1);
+		/* Setup an area to hold details about these classes */
+		(*principals)[j].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
+	    if ( (*principals)[j].details == NULL ) 
+	           	fatal_error("ERROR: Ran out of malloc space\n");
 
-			/* Tag this jthread */
-        	err = (*jvmti)->SetTag(jvmti, 
-								threads[i],
-                            	tagForObject( &(*principals)[j]) );
-        	check_jvmti_error(jvmti, err, "set thread tag");
-			err = (*jvmti)->GetThreadInfo(jvmti, 
-							threads[i], &th_info);
-			check_jvmti_error(jvmti, err, "get thread info");
-			
-			err = (*jvmti)->SetTag(jvmti, 
-								th_info.context_class_loader,
-                            	tagForObject( &(*principals)[j]));
-        	check_jvmti_error(jvmti, err, "set classloader tag");
+	    for ( k = 0 ; k < count_classes ; k++ )
+			(*principals)[j].details[k].info = &infos[k];
 
-			j++;
+		
+		(*principals)[j].strategy_to_explore = &explore_FollowReferences_Thread;
+		(*principals)[j].tag = (jlong)(j+1);
 
-		}
+		/* Tag this jthread */
+    	err = (*jvmti)->SetTag(jvmti, 
+							threads[i],
+                        	tagForObject( &(*principals)[j]) );
+    	check_jvmti_error(jvmti, err, "set thread tag");
+
+		memset(&t_info,0, sizeof(t_info));
+		err = (*jvmti)->GetThreadInfo(jvmti, 
+						threads[i], &t_info);
+		check_jvmti_error(jvmti, err, "get thread info");
+		
+		err = (*jvmti)->SetTag(jvmti, 
+							t_info.context_class_loader,
+                        	tagForObject( &(*principals)[j]));
+    	check_jvmti_error(jvmti, err, "set classloader tag");
+
+		j++;
+
 	}
 	/* Free up all allocated space */
     deallocate(jvmti, threads);
 
 	return count_principals;
+}
+
+/** Fill a structure with the infomation about the plugin 
+* Returns 0 if everything was OK, a negative value otherwise	
+*/
+int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
+{
+	r->name = "per_thread";
+	r->description = "This plugin calculate the number of objects of each class that are reachables from threads with name 'The guy'";
+	r->createPrincipals = &createPrincipal;
+	return 0;
 }
