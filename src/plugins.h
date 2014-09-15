@@ -7,6 +7,7 @@ typedef struct {
 	char* name;
 	char* description;
 	CreatePrincipals createPrincipals;
+	CreateResults createResults;
 } HeapAnalyzerPlugin;
 
 #define DECLARE_FUNCTION declarePlugin

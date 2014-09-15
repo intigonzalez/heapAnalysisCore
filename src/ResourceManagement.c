@@ -101,3 +101,17 @@ attachToPrincipal(jlong tag, ResourcePrincipal* p)
 	t->tag = p->tag;
 }
 
+jboolean
+mustFollowReferences(jlong tag)
+{
+	ObjectTag* t = (ObjectTag*)(void*)(ptrdiff_t)tag;
+	return t->followItsReferences;
+}
+
+jboolean
+setFollowReferences(jlong tag, jboolean fr)
+{
+	ObjectTag* t = (ObjectTag*)(void*)(ptrdiff_t)tag;
+	t->followItsReferences = fr;
+}
+

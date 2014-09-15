@@ -1,11 +1,14 @@
 
 #include <stdio.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
-#include "../plugins.h"
+#include "plugins.h"
+
+#define PREFIX_KEV_GROUP "kev/"
 
 typedef struct {
 	int cardinal;
@@ -24,10 +27,11 @@ indexOf( SetOfStrings* set, char* s)
 	return -1;
 }
 
-static void
+static int
 include(SetOfStrings* set, char* s)
 {
-	set->elements[set->cardinal++] = s;
+	set->elements[set->cardinal] = s;
+	return set->cardinal++;
 }
 
 
@@ -120,10 +124,19 @@ jint JNICALL callback_all_references
 {	
 	ClassDetails *d;
 	ResourcePrincipal* princ = (ResourcePrincipal*)user_data;
+	jboolean lla = false;
 
 	if (class_tag == (jlong)0) return 0;
 
 	d = (ClassDetails*)getDataFromTag(class_tag);
+	if (strcmp("Lorg/kevoree/microsandbox/samples/memory/MemoryConsumerMaxSize;", getClassSignature(d)) == 0) {
+		printf("\nAMAZING tagged=%d ref_kind=%d\n", isTagged(*tag_ptr), reference_kind);
+		if (referrer_class_tag != 0) {
+			ClassDetails* d0 = (ClassDetails*)getDataFromTag(referrer_class_tag);
+			printf("FOUND IT, REFERENCED BY %s\n", getClassSignature(d0));
+		}
+		lla = true;
+	}
 	switch(reference_kind) {
 		case JVMTI_HEAP_REFERENCE_THREAD:
 			if (isTagged(*tag_ptr)) // if tagged from another principal
@@ -155,7 +168,15 @@ jint JNICALL callback_all_references
 			else if (isTagged(*tag_ptr)) {
 				// it is an object already visited by this resource principal, or
 				// it is an object already visited for another resource principal in this iteration
-				return 0; // ignore it		
+				if (!isTaggedByPrincipal(*tag_ptr, princ))
+					return 0; // ignore it
+				else if (!mustFollowReferences(*tag_ptr)) {
+					return 0; // ignore it
+				}
+				else {
+					setFollowReferences(*tag_ptr, false);
+					return JVMTI_VISIT_OBJECTS;
+				}		
 			}
 			else if (!isTagged(*tag_ptr)) {
 					// It is neither a class object nor an object I already visited, so follow references and account of it
@@ -166,6 +187,8 @@ jint JNICALL callback_all_references
 					return JVMTI_VISIT_OBJECTS;
 			}
 	}
+	//if (lla)
+	//	printf("\n OHH< NOT NICE \n");
 	return JVMTI_VISIT_OBJECTS;
 }
 
@@ -184,10 +207,15 @@ jint JNICALL callback_single_thread
 {
 	ClassDetails *d;
 	ResourcePrincipal* princ = (ResourcePrincipal*)user_data;
+	jboolean lla = false;
 	
 	if (class_tag == (jlong)0) return 0;
 
 	d = (ClassDetails*)getDataFromTag(class_tag);
+	//if (strcmp("Lorg/kevoree/microsandbox/samples/memory/MemoryConsumerMaxSize;", getClassSignature(d)) == 0) {
+	//	printf("\nAMAZING in comp=%s tagged=%d taggedByMe=%d ref_kind=%d\n", princ->name, isTagged(*tag_ptr), isTaggedByPrincipal(*tag_ptr, princ), reference_kind);
+	//	lla = true;
+	//}
 	switch(reference_kind) {
 		case JVMTI_HEAP_REFERENCE_JNI_LOCAL:
 		case JVMTI_HEAP_REFERENCE_OTHER:
@@ -227,7 +255,15 @@ jint JNICALL callback_single_thread
 			else if (isTagged(*tag_ptr)) {
 				// it is an object already visited by this resource principal, or
 				// it is an object already visited by another resource principal in this iteration
-				return 0; // ignore it		
+				if (!isTaggedByPrincipal(*tag_ptr, princ))
+					return 0; // ignore it
+				else if (!mustFollowReferences(*tag_ptr)) {
+					return 0; // ignore it
+				}
+				else {
+					setFollowReferences(*tag_ptr, false);
+					return JVMTI_VISIT_OBJECTS;
+				}
 			}
 			else if (!isTagged(*tag_ptr)) {
 				// It it neither a class object nor an object I already visited, so follow references and account of it
@@ -239,6 +275,42 @@ jint JNICALL callback_single_thread
 			}
 	}
 	return 0;
+}
+
+static
+jint JNICALL callback_fields_of_thread
+    (jvmtiHeapReferenceKind reference_kind, 
+     const jvmtiHeapReferenceInfo* reference_info, 
+     jlong class_tag, 
+     jlong referrer_class_tag, 
+     jlong size, 
+     jlong* tag_ptr, 
+     jlong* referrer_tag_ptr, 
+     jint length, 
+     void* user_data)
+{	
+	
+	if (JVMTI_HEAP_REFERENCE_FIELD == reference_kind) {
+		/*
+		ClassDetails* d = (ClassDetails*)getDataFromTag(class_tag);
+		ClassDetails* dR = (ClassDetails*)getDataFromTag(referrer_class_tag);
+			
+		printf("ref_kind=%d class_name=%s size=%ld referrer_class=%s \n", 
+				reference_kind, 
+				getClassSignature(d),
+				size,
+				getClassSignature(dR));
+		*/
+		
+		ResourcePrincipal* princ = (ResourcePrincipal*)user_data;
+		*tag_ptr = tagForObject(princ);
+
+		setFollowReferences(*tag_ptr, true);
+		
+		//printf("\n\n kkk \n\n");
+		//return JVMTI_VISIT_OBJECTS;
+	}
+	return 0; // stop traversing
 }
 
 /* Routine to explore a single thread */
@@ -276,6 +348,7 @@ followReferences_to_discard(
 
 /* create principals */
 jint createPrincipal(jvmtiEnv* jvmti, 
+		JNIEnv *jniEnv,
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
 	jint count_principals, thread_count;
@@ -285,20 +358,31 @@ jint createPrincipal(jvmtiEnv* jvmti,
 	jthread* threads;
 	jvmtiError err;
 	SetOfStrings strings;
+	int* threadsToConsider;  
+	jvmtiHeapCallbacks heapCallbacks;
 
+	// a very bad way of initializing the set
 	memset(&strings,0, sizeof(SetOfStrings));
 
 	err = (*jvmti)->GetAllThreads(jvmti, &thread_count, &threads);
 	check_jvmti_error(jvmti, err, "get all threads");
+	
 	count_principals = 1; 
+	threadsToConsider = (int*)calloc(sizeof(int), thread_count);
 	for (i = 0 ; i < thread_count ; ++i) {
 		char  tname[255];
 
         get_thread_group_name(jvmti, threads[i], tname, sizeof(tname));
-        if (startsWith("another guy", tname) && indexOf(&strings, tname) == -1) {
-			include(&strings, strdup(tname));
-			count_principals++; // increase count
+		if (startsWith(PREFIX_KEV_GROUP, tname)){
+			threadsToConsider[i] = true;
+			k = indexOf(&strings, tname);
+		    if (k == -1) {
+				k = include(&strings, strdup(tname));
+				count_principals++; // increase count
+			}
+			threadsToConsider[i] = k;
 		}
+		else threadsToConsider[i] = -1;
 	}
 	
 	(*principals) = (ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), count_principals);
@@ -314,18 +398,22 @@ jint createPrincipal(jvmtiEnv* jvmti,
 	(*principals)[0].tag = 1;
 	(*principals)[0].strategy_to_explore = &followReferences_to_discard;
 
+	/*
+	jclass classThread = (*jniEnv)->FindClass(jniEnv, "java/lang/Thread");
+
+	jfieldID fieldId = (*jniEnv)->GetFieldID(jniEnv, classThread,
+						"target", "Ljava/lang/Runnable;");
+	*/
+
 	for (i = 0 ; i < thread_count ; ++i) {
 		jvmtiThreadInfo t_info;
-		jint index;
 		char  tname[255];
 
 		get_thread_group_name(jvmti, threads[i], tname, sizeof(tname));
-		if (!startsWith("another guy", tname)) continue;
+		k = threadsToConsider[i];
+		if (k == -1) continue;
 
-		index = indexOf(&strings, tname);
-		j = index + 1;
-
-		//printf("////////////////////////////////////////////////////////////\n");
+		j = k + 1;
 		
 		if ((*principals)[j].details == NULL) {
 			(*principals)[j].name = strdup(tname);
@@ -348,6 +436,17 @@ jint createPrincipal(jvmtiEnv* jvmti,
                         	tagForObject( &(*principals)[j]) );
     	check_jvmti_error(jvmti, err, "set thread tag");
 
+		/* tag fields of thread */
+		printf("%s\n", tname);
+		(void)memset(&heapCallbacks, 0, sizeof(heapCallbacks));
+		heapCallbacks.heap_reference_callback = &callback_fields_of_thread;
+		err = (*jvmti)->FollowReferences(jvmti,
+		               0, NULL, threads[i],
+		               &heapCallbacks, (const void*)&(*principals)[j]);
+		check_jvmti_error(jvmti, err, "iterate through heap");
+
+
+		/* tag the TreadGroup */
 		memset(&t_info,0, sizeof(t_info));
 		err = (*jvmti)->GetThreadInfo(jvmti, 
 						threads[i], &t_info);
@@ -369,6 +468,7 @@ jint createPrincipal(jvmtiEnv* jvmti,
 	}
 	/* Free up all allocated space */
     deallocate(jvmti, threads);
+	free(threadsToConsider);
 
 	return count_principals;
 }
@@ -378,10 +478,10 @@ jint createPrincipal(jvmtiEnv* jvmti,
 */
 int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
 {
-	r->name = "threadgroup_principal";
-	r->description = "This plugin caclulates the number of objects of each class that are"
- 		"reachable from all threads that belong to some thread group with a name begining by 'another guy'."
-		"Each of such thread group represents a diferent resource principal";
-	r->createPrincipals = &createPrincipal;
+	r->name = "kevoree_principal";
+	r->description = "This plugin calculates the number of objects of each class that are"
+ 		"reachable from all threads that belong to some thread group with a name begining by 'kev/'."
+		"Each of such thread group represents a different resource principal";
+	r->createPrincipals = createPrincipal;
 	return 0;
 }

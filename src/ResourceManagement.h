@@ -28,11 +28,13 @@ typedef struct {
 	jlong tag;
 	int count_details;
 	ClassDetails* details;
+	void* user_data;
 	void* strategy_to_explore;
 } ResourcePrincipal;
 
 typedef struct {
 	jint tag;
+	jboolean followItsReferences;
 	void* user_data;
 } ObjectTag;
 
@@ -41,8 +43,11 @@ typedef void (*LocalExploration)
 	(jvmtiEnv* jvmti, ResourcePrincipal* principal);
 
 typedef jint (*CreatePrincipals)
-	(jvmtiEnv* jvmti, ResourcePrincipal** principals, 
+	(jvmtiEnv* jvmti, JNIEnv *jniEnv, ResourcePrincipal** principals, 
 		ClassInfo* infos, int count_classes);
+
+typedef jobject (*CreateResults)
+	(jvmtiEnv*, JNIEnv *jniEnv, void* user_data);
 
 
 /* Operations to get info from classes*/
@@ -58,5 +63,8 @@ jlong tagForObjectWithData(ResourcePrincipal* p, void* ud);
 void* getDataFromTag(jlong tag);
 void setUserDataForTag(jlong tag, void* ud);
 void attachToPrincipal(jlong tag, ResourcePrincipal* p);
+
+jboolean mustFollowReferences(jlong tag);
+jboolean setFollowReferences(jlong tag, jboolean fr);
 
 #endif

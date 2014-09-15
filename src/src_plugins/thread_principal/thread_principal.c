@@ -5,7 +5,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include "../plugins.h"
+#include "plugins.h"
 
 
 /* Get a name for a jthread */
@@ -241,7 +241,7 @@ followReferences_to_discard(
 
 /* create principals */
 static
-jint createPrincipal(jvmtiEnv* jvmti, 
+jint createPrincipal(jvmtiEnv* jvmti, JNIEnv *jniEnv,
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
 	jint count_principals, thread_count;
@@ -328,6 +328,6 @@ int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
 {
 	r->name = "per_thread";
 	r->description = "This plugin calculate the number of objects of each class that are reachables from threads with name 'The guy'";
-	r->createPrincipals = &createPrincipal;
+	r->createPrincipals = createPrincipal;
 	return 0;
 }

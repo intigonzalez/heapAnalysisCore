@@ -44,6 +44,8 @@
 #include <string.h>
 #include <errno.h>
 
+#include <sys/time.h>
+
 #include <dlfcn.h>
 
 #include "jni.h"
@@ -97,38 +99,26 @@ compareDetails(const void *p1, const void *p2)
     return ((ClassDetails*)p2)->space - ((ClassDetails*)p1)->space;
 }
 
-static void
-printTable(ClassDetails* details, int count)
+static jobject
+StandardCreateResults
+(jvmtiEnv* jvmti, JNIEnv *jniEnv, ClassDetails* details, int count_classes)
 {
+	jobjectArray resultForOnePrincipal = NULL;
+	jobject singleResult;
+	jclass classDetails;
+	jmethodID constructor;
 	int i;
-	int totalCount = 0;
-	int totalSize = 0;
-	for ( i = 0 ; i < count ; i++ ) {
-		totalCount += details[i].count;
-		totalSize += details[i].space;	
+
+	classDetails = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/ClassDetailsUsage");
+	constructor = (*jniEnv)->GetMethodID(jniEnv, classDetails, "<init>", "(Ljava/lang/String;II)V");
+	resultForOnePrincipal = (*jniEnv)->NewObjectArray(jniEnv, count_classes, classDetails, NULL);
+	for ( i = 0 ; i < count_classes; i++) {
+		singleResult = (*jniEnv)->NewObject(jniEnv, classDetails, constructor, 
+					(*jniEnv)->NewStringUTF(jniEnv, getClassSignature(&details[i])),details[i].count, details[i].space);
+		(*jniEnv)->SetObjectArrayElement(jniEnv, resultForOnePrincipal, i, singleResult);	
 	}
 
-	/* Sort details by space used */
-	qsort(details, count, sizeof(ClassDetails), &compareDetails);
-
-	/* Print out sorted table */
-	stdout_message("Heap View, Total of %d objects found, with a total size of %d.\n\n",
-		             totalCount, totalSize);
-
-	stdout_message("Nro.      Space      Count      Class Signature\n");
-	stdout_message("--------- ---------- ---------- ----------------------\n");
-
-	for ( i = 0 ; i < count ; i++ ) {
-		if ( details[i].space == 0 || i > 25 ) {
-		    break;
-		}
-		stdout_message("%9d %10d %10d %s\n",
-			i,
-		    details[i].space, 
-			details[i].count, 
-			getClassSignature(&details[i]));
-	}
-	stdout_message("--------- ---------- ---------- ----------------------\n\n");
+	return resultForOnePrincipal;
 }
 
 
@@ -137,11 +127,13 @@ printTable(ClassDetails* details, int count)
  * (follows different strategies) 
  */
 static 
-void explorePrincipals(
+jobject explorePrincipals(
 		jvmtiEnv* jvmti, 
+		JNIEnv *jniEnv,
 		int count_classes,
 		jclass* classes,
-		CreatePrincipals createPrincipals)
+		CreatePrincipals createPrincipals,
+		CreateResults createResults)
 {
     int j;
     int i;
@@ -151,12 +143,23 @@ void explorePrincipals(
     jvmtiError err;
 	ClassDetails* details;
 	ResourcePrincipal shared_stuff_principal;
+	
+	jobjectArray result = NULL;
+	jclass classObject;
+	jobject tmpObj = NULL;
+	
 
 	struct timeval tv;
 	struct timeval start_tv;
 	double elapsed = 0.0;
 
 	gettimeofday(&start_tv, NULL);
+
+	// remove this after debug
+	details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
+	for ( i = 0 ; i < count_classes ; i++ ) {
+		details[i].info = &gdata->info_classes[i];
+	}
 
     /** General algorithm
      * 1 - Build the collection RPs of resource principals
@@ -173,24 +176,37 @@ void explorePrincipals(
     // obtain data for the whole JVM
     // Step 1
 	/* Allocate space to hold the details */
-	count_principals = createPrincipals(jvmti, &principals, gdata->info_classes , count_classes);
+	count_principals = createPrincipals(jvmti, jniEnv, &principals, gdata->info_classes , count_classes);
     // Step 2 (Empty if the resource principal is the whole JVM)
 	
     // Step 3
-
 	for ( i = 0 ; i < count_classes ; i++ ) {
+			//jlong t_ptr;
+			
            	/* Tag this jclass */
            	err = (*jvmti)->SetTag(jvmti, classes[i],
                           tagForObject(NULL));
            	check_jvmti_error(jvmti, err, "set object tag");
+
+			// remove this after debuging
+			
+           	/* Tag this jclass */
+           	//err = (*jvmti)->GetTag(jvmti, classes[i], &t_ptr);
+           	//check_jvmti_error(jvmti, err, "get object tag");
+			//setUserDataForTag(t_ptr, &(details[i]));
    	}
+
+	// prepare array for results
+	classObject = (*jniEnv)->FindClass(jniEnv, "java/lang/Object");
+	result = (*jniEnv)->NewObjectArray(jniEnv, count_principals, classObject, NULL);
+
     for (j = 0 ; j < count_principals ; ++j) {
     	// step 3.1	
        	for ( i = 0 ; i < count_classes ; i++ ) {
 				jlong t_ptr;
                	/* Tag this jclass */
                	err = (*jvmti)->GetTag(jvmti, classes[i], &t_ptr);
-               	check_jvmti_error(jvmti, err, "set object tag");
+               	check_jvmti_error(jvmti, err, "get object tag");
 				setUserDataForTag(t_ptr, &(principals[j].details[i]));
        	}
 
@@ -199,8 +215,15 @@ void explorePrincipals(
 		/* Iterate through the heap and count up uses of jclass */
 		((LocalExploration)(principals[j].strategy_to_explore))(jvmti,  &principals[j]);
 		// step 3.4
-		stdout_message("=> PRINTING INFO FOR: %s\n", principals[j].name);
-		printTable(principals[j].details, count_classes);
+		if (createResults == NULL)
+			tmpObj= StandardCreateResults(jvmti, jniEnv, principals[j].details, count_classes);
+		else 
+			tmpObj = createResults(jvmti, jniEnv, principals[j].user_data);
+
+		(*jniEnv)->SetObjectArrayElement(jniEnv, result, j, tmpObj);
+		
+		//stdout_message("=> PRINTING INFO FOR: %s\n", principals[j].name);	
+
 		// step 3.5
 	   	for ( i = 0 ; i < count_classes ; i++ ) {
 	       	jlong t_ptr;
@@ -220,6 +243,7 @@ void explorePrincipals(
 	elapsed = (tv.tv_sec - start_tv.tv_sec) * 1000000.0 +
   		(tv.tv_usec - start_tv.tv_usec);
 	stdout_message("\n=========================================\n Elapsed time: %lf microseconds\n=========================================\n", elapsed);
+	return result;
 }
 
 #define WHOLE_JVM_ANALYSIS 1
@@ -227,8 +251,9 @@ void explorePrincipals(
 #define PER_THREAD_ANALYSIS 4
 #define PER_THREAD_GROUP_ANALYSIS 8
 
-static void JNICALL
-do_analysis(jvmtiEnv *jvmti, int id) {
+static jobject JNICALL
+do_analysis(jvmtiEnv *jvmti, JNIEnv *jniEnv, int id) {
+	jobject result = NULL;
 	enterAgentMonitor(jvmti); {
         if (!gdata->vmDeathCalled && !gdata->dumpInProgress ) {
             jvmtiError         err;
@@ -241,7 +266,6 @@ do_analysis(jvmtiEnv *jvmti, int id) {
 			ResourcePrincipal* principals;
 
 		    gdata->dumpInProgress = JNI_TRUE;
-
 
 		    /* Get all the loaded classes */
 		    err = (*jvmti)->GetLoadedClasses(jvmti, &count, &classes);
@@ -260,6 +284,7 @@ do_analysis(jvmtiEnv *jvmti, int id) {
 				if ( sig == NULL )
 					fatal_error("ERROR: No class signature found\n");
 				gdata->info_classes[i].signature = strdup(sig);
+				//fprintf(stderr, "Pointer %p %s\n", gdata->info_classes[i].signature, sig);
 				gdata->info_classes[i].is_clazz_clazz = !strcmp(sig, "Ljava/lang/Class;");
 				deallocate(jvmti, sig);
 			}
@@ -268,54 +293,21 @@ do_analysis(jvmtiEnv *jvmti, int id) {
 			if (id < gdata->nbPlugins) {
 				
 				stdout_message("Starting to explore\n");
-				explorePrincipals(jvmti, // the environment  
+				result = explorePrincipals(jvmti, // the jvmti environment  
+						jniEnv, // jni environment
 						count, // number of loaded classes 
 						classes, // loaded classes
-						gdata->plugins[id].createPrincipals // strategy to create principals
+						gdata->plugins[id].createPrincipals, // strategy to create principals,
+						gdata->plugins[id].createResults // strategy to create Results
 						);
 			}
-			/*if (types & WHOLE_JVM_ANALYSIS) {
-				stdout_message("Starting to explore THE WHOLE HEAP\n");
-				explorePrincipals(jvmti, // the environment  
-						count, // number of loaded classes 
-						classes, // loaded classes
-						&create_single_principal // strategy to create principals
-						);
-			}
-		   
-			if (types & ALIVE_OBJECTS_ANALYSIS) {
-				stdout_message("Starting to explore all ALIVE REFERENCES\n");
-				explorePrincipals(jvmti,
-						count,
-						classes,
-						&createPrincipal_WholeJVM // strategy to create principals
-						);
-			}
-
-			if (types & PER_THREAD_ANALYSIS) {
-				stdout_message("Starting to explore REFERENCES PER THREAD\n");
-				explorePrincipals(jvmti,
-						count,
-						classes,
-						&createPrincipal_per_thread // strategy to create principals
-						);
-			}
-
-			if (types & PER_THREAD_GROUP_ANALYSIS) {
-				stdout_message("Starting to explore REFERENCES PER THREAD GROUP\n");
-				explorePrincipals(jvmti,
-						count,
-						classes,
-						&createPrincipal_per_threadgroup // strategy to create principals
-						);
-			}
-			*/
 
 		    /* Free up all allocated space */
 		    deallocate(jvmti, classes);
-		    for ( i = 0 ; i < count ; i++ )
-		        if ( gdata->info_classes[i].signature != NULL )
+		    for ( i = 0 ; i < count ; i++ ) {
+			    if ( gdata->info_classes[i].signature != NULL )
 		            free(gdata->info_classes[i].signature);
+			}
 
 			free(gdata->info_classes);
 			gdata->info_classes = NULL;
@@ -323,17 +315,19 @@ do_analysis(jvmtiEnv *jvmti, int id) {
             gdata->dumpInProgress = JNI_FALSE;
         }
     } exitAgentMonitor(jvmti);
+
+	return result;
 }
 
 /* Callback for JVMTI_EVENT_DATA_DUMP_REQUEST (Ctrl-\ or at exit) */
 static void JNICALL
 dataDumpRequest(jvmtiEnv *jvmti)
 {
-    do_analysis(jvmti, PER_THREAD_ANALYSIS | ALIVE_OBJECTS_ANALYSIS | WHOLE_JVM_ANALYSIS);
+    //do_analysis(jvmti, NULL, PER_THREAD_ANALYSIS | ALIVE_OBJECTS_ANALYSIS | WHOLE_JVM_ANALYSIS);
 }
 
 /* Java Native Method for analysis */
-static void JNICALL
+static jobject JNICALL
 HEAPANALYSIS_native_analysis(JNIEnv *env, jclass klass, jint types)
 {
 	jint count;
@@ -341,8 +335,8 @@ HEAPANALYSIS_native_analysis(JNIEnv *env, jclass klass, jint types)
 	jvmtiError err;
 	jvmtiError* results;
 	int i;
-	
-	do_analysis(gdata->jvmti, types);
+
+	return do_analysis(gdata->jvmti, env, types);
 }
 
 /* Java Native Method for count_of_analysis */
@@ -369,7 +363,7 @@ HEAPANALYSIS_native_getAnalysis(JNIEnv *env, jclass klass, jint index)
 		jmethodID cnstrctr;
 		jstring name;
 		jstring desc;
-    	jclass c = (*env)->FindClass(env, "AnalysisType");
+    	jclass c = (*env)->FindClass(env, "org/heapexplorer/heapanalysis/AnalysisType");
     	if (c == 0) {
         	// throw exception	
 			return NULL;
@@ -397,11 +391,11 @@ cbVMStart(jvmtiEnv *jvmti, JNIEnv *env)
 
         /* Java Native Methods for class */
         static JNINativeMethod registry[3] = {
-            {"analysis", "(I)V",
+            {"analysis", "(I)Ljava/lang/Object;",
                 (void*)&HEAPANALYSIS_native_analysis},
 			{"count_of_analysis", "()I",
                 (void*)&HEAPANALYSIS_native_count_of_analysis},
-			{"getAnalysis", "(I)LAnalysisType;",
+			{"getAnalysis", "(I)Lorg/heapexplorer/heapanalysis/AnalysisType;",
                 (void*)&HEAPANALYSIS_native_getAnalysis},
 			
         };
@@ -410,19 +404,59 @@ cbVMStart(jvmtiEnv *jvmti, JNIEnv *env)
         stdout_message("VMStart\n");
 
         /* Register Natives for class whose methods we use */
-        klass = (*env)->FindClass(env, "HeapAnalysis");
+        klass = (*env)->FindClass(env, "org/heapexplorer/heapanalysis/HeapAnalysis");
         if ( klass == NULL ) {
             fatal_error("ERROR: JNI: Cannot find %s with FindClass\n",
-                        "HeapAnalysis");
+                        "org/heapexplorer/heapanalysis/HeapAnalysis");
         }
         rc = (*env)->RegisterNatives(env, klass, registry, 3);
         if ( rc != 0 ) {
             fatal_error("ERROR: JNI: Cannot register native methods for %s\n",
-                        "HeapAnalysis");
+                        "org/heapexplorer/heapanalysis/HeapAnalysis");
         }
 
 		stdout_message("VMStart DONE\n");
 
+    } exitAgentMonitor(jvmti);
+}
+
+void JNICALL
+onClassLoad(jvmtiEnv *jvmti,
+            JNIEnv* env,
+            jthread thread,
+            jclass klass)
+{
+	enterAgentMonitor(jvmti); {
+		char* cName;
+		char* gName;
+        int      rc;
+		jvmtiError error;
+		/* Java Native Methods for class */
+	    static JNINativeMethod registry[3] = {
+	        {"analysis", "(I)Ljava/lang/Object;",
+	            (void*)&HEAPANALYSIS_native_analysis},
+			{"count_of_analysis", "()I",
+	            (void*)&HEAPANALYSIS_native_count_of_analysis},
+			{"getAnalysis", "(I)Lorg/heapexplorer/heapanalysis/AnalysisType;",
+	            (void*)&HEAPANALYSIS_native_getAnalysis},
+		
+	    };
+
+		error = (*jvmti)->GetClassSignature(jvmti,
+            		klass,
+            		&cName,
+            		&gName);
+
+		check_jvmti_error(jvmti, error, "Cannot get class name");
+		if (strcmp(cName, "Lorg/heapexplorer/heapanalysis/HeapAnalysis;")==0) {
+		    rc = (*env)->RegisterNatives(env, klass, registry, 3);
+		    if ( rc != 0 ) {
+		        fatal_error("ERROR: %d in JNI: Cannot register native methods for %s in %s:%d\n", rc,
+		                    "org/heapexplorer/heapanalysis/HeapAnalysis", __FILE__, __LINE__);
+		    }
+		}
+		(*jvmti)->Deallocate(jvmti, gName);
+		(*jvmti)->Deallocate(jvmti, cName);
     } exitAgentMonitor(jvmti);
 }
 
@@ -503,6 +537,7 @@ loadPlugins(const char* configFile)
 		dlerror();    /* Clear any existing error */
 		
 		*(void **) (&declarePlugin) = dlsym(handle, "declarePlugin"); // do you really get this cast? hahahahaha
+		gdata->plugins[gdata->nbPlugins].createResults = NULL;
 		(*declarePlugin)(&gdata->plugins[gdata->nbPlugins]);
 		//stdout_message("Plugin Name: %s\nPlugin Description: %s\n", gdata->plugins[gdata->nbPlugins].name, gdata->plugins[gdata->nbPlugins].description);
 		gdata->nbPlugins++;
@@ -563,6 +598,7 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     callbacks.VMInit                  = &vmInit;
     callbacks.VMDeath                 = &vmDeath;
     callbacks.DataDumpRequest         = &dataDumpRequest;
+	callbacks.ClassLoad				  = &onClassLoad;
 
     err = (*jvmti)->SetEventCallbacks(jvmti, &callbacks, sizeof(callbacks));
     check_jvmti_error(jvmti, err, "set event callbacks");
@@ -575,6 +611,9 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 	err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
                         JVMTI_EVENT_VM_START, NULL);
     check_jvmti_error(jvmti, err, "set event notifications");
+	err = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
+                          JVMTI_EVENT_CLASS_LOAD, NULL);
+    check_jvmti_error(jvmti, err, "Cannot set event notification");
 
 	/* Add demo jar file to boot classpath */
     add_demo_jar_to_bootclasspath2(jvmti, "heapanalysis.jar");

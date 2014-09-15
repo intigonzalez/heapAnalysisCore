@@ -4,7 +4,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include "../plugins.h"
+#include "plugins.h"
 
 /* Heap object callback */
 static jint JNICALL
@@ -37,7 +37,7 @@ void explore_all_objects(
 }
 
 /* create principals */
-jint  createPrincipal(jvmtiEnv* jvmti, 
+jint  createPrincipal(jvmtiEnv* jvmti, JNIEnv *jniEnv,
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
 	jint count_principals;
@@ -69,6 +69,6 @@ int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
 {
 	r->name = "whole_heap_exploration";
 	r->description = "This plugin calculates the number of objects of each class within the whole JVM. It returns boths, alive and dead objects";
-	r->createPrincipals = &createPrincipal;
+	r->createPrincipals = createPrincipal;
 	return 0;
 }

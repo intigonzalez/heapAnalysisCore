@@ -5,11 +5,11 @@
 #include <string.h>
 #include <errno.h>
 
-#include "../plugins.h"
+#include "plugins.h"
 
 
 /* create principals */
-jint createPrincipal(jvmtiEnv* jvmti, 
+jint createPrincipal(jvmtiEnv* jvmti, JNIEnv *jniEnv, 
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
 	(*principals) = (ResourcePrincipal*)(ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), 0);
@@ -24,6 +24,6 @@ int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
 {
 	r->name = "basicPlugin";
 	r->description = "This plugin is used to demostrate the basic mechanism we use to implement plugins";
-	r->createPrincipals = &createPrincipal;
+	r->createPrincipals = createPrincipal;
 	return 0;
 }

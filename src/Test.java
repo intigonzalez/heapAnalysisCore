@@ -1,6 +1,9 @@
 import java.net.*;
 import java.io.*;
 import java.lang.reflect.*;
+import java.util.*;
+
+import org.heapexplorer.heapanalysis.*;
 /**
  *
 */
@@ -86,6 +89,56 @@ public class Test {
 		}	
 	}
 
+	private static void standardPrint(Object obj) {
+		Object[] r = (Object[])obj;
+		for (int j = 0 ; j < r.length ; j++) {
+				
+			ClassDetailsUsage[] details = (ClassDetailsUsage[])r[j];
+			Arrays.sort(details, new Comparator() {
+				public int compare(Object obj1, Object obj2) {
+					ClassDetailsUsage a = (ClassDetailsUsage)obj1, b = (ClassDetailsUsage)obj2;
+					if (a.totalSize > b.totalSize)
+						return -1;
+					else if (a.totalSize < b.totalSize)
+						return 1;
+					else if (a.nbObjects > b.nbObjects)
+						return -1;
+					else if (a.nbObjects < b.nbObjects)
+						return 1;
+					else
+						return a.className.compareTo(b.className);
+				}
+				public boolean equals(Object obj) {
+					return false;			
+				}
+			});
+			int totalCount = 0;
+			int totalSize = 0;
+			for ( int i = 0 ; i < details.length ; i++ ) {
+				totalCount += details[i].nbObjects;
+				totalSize += details[i].totalSize;	
+			}
+
+			/* Print out sorted table */
+			System.out.printf("Heap View, Total of %d objects found, with a total size of %d.\n\n",
+		             totalCount, totalSize);
+
+			System.out.printf("Nro.      Space      Count      Class Signature\n");		
+			System.out.printf("--------- ---------- ---------- ----------------------\n");
+			for (int i = 0 ; i < details.length ; i++) {
+				if ( details[i].totalSize == 0 || i > 25 ) {
+					break;
+				}
+				System.out.printf("%9d %10d %10d %s\n",
+					i,
+					details[i].totalSize, 
+					details[i].nbObjects, 
+					details[i].className);
+			}
+			System.out.printf("--------- ---------- ---------- ----------------------\n");	
+		}
+	}
+
 	public static void main(String[] args) throws Exception {
 		boolean[] bb = new boolean[1000000];
 		Thread1 th = new Thread1();
@@ -113,7 +166,8 @@ public class Test {
 			if (Command.STATS.is(line)) {
 				String[] argsCmd = Command.arguments(line);
 				if (argsCmd.length > 1 ) {
-					HeapAnalysis.analysis(Integer.parseInt(argsCmd[1]));
+					Object r = HeapAnalysis.analysis(Integer.parseInt(argsCmd[1]));
+					standardPrint(r);
 				}
 				else Command.STATS.printUsage();
 			}

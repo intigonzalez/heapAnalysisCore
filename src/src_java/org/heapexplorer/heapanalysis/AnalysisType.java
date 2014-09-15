@@ -1,3 +1,5 @@
+package org.heapexplorer.heapanalysis;
+
 public class AnalysisType {
 	public final String name;
 	public final String description;

@@ -5,7 +5,9 @@
 #include <string.h>
 #include <errno.h>
 
-#include "../plugins.h"
+#include "plugins.h"
+
+#include "simple_accounting.h"
 
 
 /* Callback for HeapReferences in FollowReferences (Shows alive objects in the whole JVM) */
@@ -22,41 +24,45 @@ jint JNICALL callback_all_alive_objects
      void* user_data)
 {
 	ResourcePrincipal* princ = (ResourcePrincipal*)user_data;
+	InnerPrincipal* iPrinc = (InnerPrincipal*)princ->user_data;
+	ResourcePrincipalData* dPrinc = (ResourcePrincipalData*)iPrinc->princ;
+
+	static int loco = 0;
 
 	// the class has a tag
 	if ( (class_tag != (jlong)0)) {
 		ClassDetails *d = (ClassDetails*)getDataFromTag(class_tag);
-		
-		char* className = getClassSignature(d);
-		if (isClassClass(d)) {
-			// it's a class object. I have to discover if I already visited it
-			if ((*tag_ptr) == 0) return 0;			
+		LocalEnvironment env;
 
-        	d = (ClassDetails*)getDataFromTag(*tag_ptr);
-			if (!isTagged(*tag_ptr)) {
-				attachToPrincipal(*tag_ptr, princ);
-				d = (ClassDetails*)getDataFromTag(class_tag);
-        		d->count++;
-        		d->space += (int)size;
-				return JVMTI_VISIT_OBJECTS;
-			}
-			return 0;
+		env.refereceKind = reference_kind;
+		env.current.size = size;
+		env.entity.id = (jint)princ->tag;
+
+		if (isClassClass(d)) {
+			if ((*tag_ptr) == 0) return 0;			
+			if (!isTagged(*tag_ptr))
+				env.current.membership = 0;
+			else
+				env.current.membership = ((ObjectTag*)(void*)(ptrdiff_t)(*tag_ptr))->tag;
 		}
-		else if (isTagged((*tag_ptr))) {
-			// it is a tagged thread, or
-			// it is an object already visited by this resource principal, or
-			// it is an object already visited for another resource principal in this iteration
-			return 0; // ignore it		
-		}
-		else if (!isTagged( (*tag_ptr))) {
-			// It it neither a class object nor an object I already visited, so follow references and account of it
-        	d = (ClassDetails*)getDataFromTag(class_tag);
-        	d->count++;
-        	d->space += (int)size;
-			*tag_ptr = tagForObject(princ);	
-			return JVMTI_VISIT_OBJECTS;
-		}
+		else if (isTagged((*tag_ptr)))
+			env.current.membership = ((ObjectTag*)(void*)(ptrdiff_t)(*tag_ptr))->tag;
+		else
+			env.current.membership = 0;
 		
+
+		int flag = iPrinc->type->member(&env, dPrinc);
+		if (flag) {
+			iPrinc->type->on_inclusion(&env, dPrinc);
+			fprintf(stderr, "blblb %d\n", (++loco));
+			if ((*tag_ptr) == 0)
+				*tag_ptr = tagForObject(princ);
+			else
+				attachToPrincipal(*tag_ptr, princ);
+			return JVMTI_VISIT_OBJECTS;	
+		}
+		return 0;
+		// done !!!
     }
 	return 0; // I don't know the class of this object, so don't explore it
 }
@@ -77,21 +83,27 @@ explore_FollowReferencesAll(
     check_jvmti_error(jvmti, err, "iterate through heap");
 }
 
-jint createPrincipal(jvmtiEnv* jvmti, 
+static
+jint createPrincipals(jvmtiEnv* jvmti, JNIEnv *jniEnv,
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
 	jint count_principals;
 	int j;
 	int i;
 	jlong tmp;
+	InnerPrincipal* innerP = createInstances(TYPES, nbTYPES, &count_principals);
+	initializeInstances(innerP, count_principals);
 
-	count_principals = 1;
 	(*principals) = (ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), count_principals);       
     for (j = 0 ; j < count_principals ; ++j) {
 		/* Setup an area to hold details about these classes */
 		(*principals)[j].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
         if ( (*principals)[j].details == NULL ) 
             fatal_error("ERROR: Ran out of malloc space\n");
+
+		// setting the inner principal structure
+		(*principals)[j].user_data = &innerP[j];
+		
 
         for ( i = 0 ; i < count_classes ; i++ )
 			(*principals)[j].details[i].info = &infos[i];
@@ -107,8 +119,8 @@ jint createPrincipal(jvmtiEnv* jvmti,
 */
 int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
 {
-	r->name = "all_alive_objects_exploration";
+	r->name = "from dsl0";
 	r->description = "This plugin calculates the number of objects of each class within the whole JVM. It returns only alive objects";
-	r->createPrincipals = &createPrincipal;
+	r->createPrincipals = createPrincipals;
 	return 0;
 }

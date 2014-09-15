@@ -1,8 +1,12 @@
+package org.heapexplorer.heapanalysis;
+
 public class HeapAnalysis {
-	public static native void analysis(int id);
+	public static native Object analysis(int id);
 
 	private static native int count_of_analysis() ;
 	private static native AnalysisType getAnalysis(int index);
+
+	public static int PEPE = 114;
 
 	public static AnalysisType[] getAnalysis() {
 		int n = count_of_analysis();
