@@ -147,13 +147,6 @@ jobject explorePrincipals(
 	jobjectArray result = NULL;
 	jclass classObject;
 	jobject tmpObj = NULL;
-	
-
-	struct timeval tv;
-	struct timeval start_tv;
-	double elapsed = 0.0;
-
-	gettimeofday(&start_tv, NULL);
 
 	// remove this after debug
 	details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
@@ -238,18 +231,8 @@ jobject explorePrincipals(
     	free(principals[j].details);
     free(principals);
 	removeTags(jvmti);
-	
-	gettimeofday(&tv, NULL);
-	elapsed = (tv.tv_sec - start_tv.tv_sec) * 1000000.0 +
-  		(tv.tv_usec - start_tv.tv_usec);
-	stdout_message("\n=========================================\n Elapsed time: %lf microseconds\n=========================================\n", elapsed);
 	return result;
 }
-
-#define WHOLE_JVM_ANALYSIS 1
-#define ALIVE_OBJECTS_ANALYSIS 2
-#define PER_THREAD_ANALYSIS 4
-#define PER_THREAD_GROUP_ANALYSIS 8
 
 static jobject JNICALL
 do_analysis(jvmtiEnv *jvmti, JNIEnv *jniEnv, int id) {
@@ -294,11 +277,11 @@ do_analysis(jvmtiEnv *jvmti, JNIEnv *jniEnv, int id) {
 				
 				stdout_message("Starting to explore\n");
 				result = explorePrincipals(jvmti, // the jvmti environment  
-						jniEnv, // jni environment
-						count, // number of loaded classes 
-						classes, // loaded classes
-						gdata->plugins[id].createPrincipals, // strategy to create principals,
-						gdata->plugins[id].createResults // strategy to create Results
+							jniEnv, // jni environment
+							count, // number of loaded classes 
+							classes, // loaded classes
+							gdata->plugins[id].createPrincipals, // strategy to create principals,
+							gdata->plugins[id].createResults // strategy to create Results
 						);
 			}
 
@@ -380,25 +363,34 @@ HEAPANALYSIS_native_getAnalysis(JNIEnv *env, jclass klass, jint index)
 	//} exitAgentMonitor(gdata->jvmti);
 }
 
+static void JNICALL
+prepareClass(JNIEnv *env, jclass klass)
+{
+	int rc;
+	/* Java Native Methods for class */
+    static JNINativeMethod registry[3] = {
+        {"analysis", "(I)Ljava/lang/Object;",
+            (void*)&HEAPANALYSIS_native_analysis},
+		{"count_of_analysis", "()I",
+            (void*)&HEAPANALYSIS_native_count_of_analysis},
+		{"getAnalysis", "(I)Lorg/heapexplorer/heapanalysis/AnalysisType;",
+            (void*)&HEAPANALYSIS_native_getAnalysis},
+	
+    };
+
+	rc = (*env)->RegisterNatives(env, klass, registry, 3);
+    if ( rc != 0 ) {
+        fatal_error("ERROR: JNI: Cannot register native methods for %s\n",
+                    "org/heapexplorer/heapanalysis/HeapAnalysis");
+    }
+}
+
 /* Callback for JVMTI_EVENT_VM_START */
 static void JNICALL
 cbVMStart(jvmtiEnv *jvmti, JNIEnv *env)
 {
     enterAgentMonitor(jvmti); {
         jclass   klass;
-        jfieldID field;
-        int      rc;
-
-        /* Java Native Methods for class */
-        static JNINativeMethod registry[3] = {
-            {"analysis", "(I)Ljava/lang/Object;",
-                (void*)&HEAPANALYSIS_native_analysis},
-			{"count_of_analysis", "()I",
-                (void*)&HEAPANALYSIS_native_count_of_analysis},
-			{"getAnalysis", "(I)Lorg/heapexplorer/heapanalysis/AnalysisType;",
-                (void*)&HEAPANALYSIS_native_getAnalysis},
-			
-        };
 
         /* The VM has started. */
         stdout_message("VMStart\n");
@@ -409,12 +401,8 @@ cbVMStart(jvmtiEnv *jvmti, JNIEnv *env)
             fatal_error("ERROR: JNI: Cannot find %s with FindClass\n",
                         "org/heapexplorer/heapanalysis/HeapAnalysis");
         }
-        rc = (*env)->RegisterNatives(env, klass, registry, 3);
-        if ( rc != 0 ) {
-            fatal_error("ERROR: JNI: Cannot register native methods for %s\n",
-                        "org/heapexplorer/heapanalysis/HeapAnalysis");
-        }
-
+        
+		prepareClass(env, klass);
 		stdout_message("VMStart DONE\n");
 
     } exitAgentMonitor(jvmti);
@@ -429,18 +417,8 @@ onClassLoad(jvmtiEnv *jvmti,
 	enterAgentMonitor(jvmti); {
 		char* cName;
 		char* gName;
-        int      rc;
 		jvmtiError error;
-		/* Java Native Methods for class */
-	    static JNINativeMethod registry[3] = {
-	        {"analysis", "(I)Ljava/lang/Object;",
-	            (void*)&HEAPANALYSIS_native_analysis},
-			{"count_of_analysis", "()I",
-	            (void*)&HEAPANALYSIS_native_count_of_analysis},
-			{"getAnalysis", "(I)Lorg/heapexplorer/heapanalysis/AnalysisType;",
-	            (void*)&HEAPANALYSIS_native_getAnalysis},
 		
-	    };
 
 		error = (*jvmti)->GetClassSignature(jvmti,
             		klass,
@@ -449,11 +427,7 @@ onClassLoad(jvmtiEnv *jvmti,
 
 		check_jvmti_error(jvmti, error, "Cannot get class name");
 		if (strcmp(cName, "Lorg/heapexplorer/heapanalysis/HeapAnalysis;")==0) {
-		    rc = (*env)->RegisterNatives(env, klass, registry, 3);
-		    if ( rc != 0 ) {
-		        fatal_error("ERROR: %d in JNI: Cannot register native methods for %s in %s:%d\n", rc,
-		                    "org/heapexplorer/heapanalysis/HeapAnalysis", __FILE__, __LINE__);
-		    }
+		    prepareClass(env, klass);
 		}
 		(*jvmti)->Deallocate(jvmti, gName);
 		(*jvmti)->Deallocate(jvmti, cName);

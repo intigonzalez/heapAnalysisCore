@@ -175,6 +175,9 @@ jint JNICALL callback_all_references
 				}
 				else {
 					setFollowReferences(*tag_ptr, false);
+					d = (ClassDetails*)getDataFromTag(class_tag);
+					d->count++;
+					d->space += (int)size;
 					return JVMTI_VISIT_OBJECTS;
 				}		
 			}
@@ -262,6 +265,9 @@ jint JNICALL callback_single_thread
 				}
 				else {
 					setFollowReferences(*tag_ptr, false);
+					d = (ClassDetails*)getDataFromTag(class_tag);
+					d->count++;
+					d->space += (int)size;
 					return JVMTI_VISIT_OBJECTS;
 				}
 			}
@@ -360,6 +366,31 @@ jint createPrincipal(jvmtiEnv* jvmti,
 	SetOfStrings strings;
 	int* threadsToConsider;  
 	jvmtiHeapCallbacks heapCallbacks;
+	jclass klass_HeapAnalysis;
+	jclass klass_UpcallGetObjects;
+	jfieldID field_upcall;
+	jmethodID method_getJavaDefinedObjects;
+	jobject object_upcall;
+
+	klass_HeapAnalysis = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/HeapAnalysis");
+	if (klass_HeapAnalysis == NULL)
+		fatal_error("ERROR: Impossible to obtain HeapAnalysis in Kevoree_principal\n");
+	field_upcall = (*jniEnv)->GetStaticFieldID(jniEnv, klass_HeapAnalysis, 
+		"callback", "Lorg/heapexplorer/heapanalysis/UpcallGetObjects;");
+	if (field_upcall == NULL)
+		fatal_error("ERROR: Impossible to obtain HeapAnalysis::callback in Kevoree_principal\n");
+
+	object_upcall = (*jniEnv)->GetStaticObjectField(jniEnv, 
+					klass_HeapAnalysis, field_upcall);
+
+	klass_UpcallGetObjects = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/UpcallGetObjects");
+	if (klass_HeapAnalysis == NULL)
+		fatal_error("ERROR: Impossible to obtain UpcallGetObjects in Kevoree_principal\n");
+	method_getJavaDefinedObjects = (*jniEnv)->GetMethodID(jniEnv, 
+				klass_UpcallGetObjects, "getJavaDefinedObjects", 
+				"(Ljava/lang/String;)[Ljava/lang/Object;");
+	if (method_getJavaDefinedObjects == NULL)
+		fatal_error("ERROR: Impossible to obtain UpcallGetObjects::getJavaDefinedObjects in Kevoree_principal\n");
 
 	// a very bad way of initializing the set
 	memset(&strings,0, sizeof(SetOfStrings));
@@ -404,10 +435,10 @@ jint createPrincipal(jvmtiEnv* jvmti,
 	jfieldID fieldId = (*jniEnv)->GetFieldID(jniEnv, classThread,
 						"target", "Ljava/lang/Runnable;");
 	*/
-
 	for (i = 0 ; i < thread_count ; ++i) {
 		jvmtiThreadInfo t_info;
 		char  tname[255];
+		jboolean firstThread;
 
 		get_thread_group_name(jvmti, threads[i], tname, sizeof(tname));
 		k = threadsToConsider[i];
@@ -415,7 +446,9 @@ jint createPrincipal(jvmtiEnv* jvmti,
 
 		j = k + 1;
 		
-		if ((*principals)[j].details == NULL) {
+		firstThread = (*principals)[j].details == NULL;
+
+		if (firstThread) {
 			(*principals)[j].name = strdup(tname);
 			/* Setup an area to hold details about these classes */
 			(*principals)[j].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
@@ -447,21 +480,54 @@ jint createPrincipal(jvmtiEnv* jvmti,
 
 
 		/* tag the TreadGroup */
-		memset(&t_info,0, sizeof(t_info));
-		err = (*jvmti)->GetThreadInfo(jvmti, 
-						threads[i], &t_info);
-		check_jvmti_error(jvmti, err, "get thread info");
+		if (firstThread) {
+			memset(&t_info,0, sizeof(t_info));
+			err = (*jvmti)->GetThreadInfo(jvmti, 
+							threads[i], &t_info);
+			check_jvmti_error(jvmti, err, "get thread info");
 		
-		err = (*jvmti)->SetTag(jvmti, 
-							t_info.context_class_loader,
-                        	tagForObject( &(*principals)[j]));
-    	check_jvmti_error(jvmti, err, "set classloader tag");
-
-		if (t_info.thread_group != NULL) {
 			err = (*jvmti)->SetTag(jvmti, 
-							t_info.thread_group,
-                        	tagForObject( &(*principals)[j]));
-    		check_jvmti_error(jvmti, err, "set classloader tag");
+								t_info.context_class_loader,
+		                    	tagForObject( &(*principals)[j]));
+			check_jvmti_error(jvmti, err, "set classloader tag");
+
+			if (t_info.thread_group != NULL) {
+				err = (*jvmti)->SetTag(jvmti, 
+								t_info.thread_group,
+		                    	tagForObject( &(*principals)[j]));
+				check_jvmti_error(jvmti, err, "set classloader tag");
+			}
+		}
+
+		// java-defined root_objects
+		if (firstThread && object_upcall != NULL) {
+			jthrowable throwable;
+			jint array_length;
+			jint idx;
+			
+			jarray r = (*jniEnv)->CallObjectMethod(jniEnv, object_upcall, 
+						method_getJavaDefinedObjects, (*jniEnv)->NewStringUTF(jniEnv, (*principals)[j].name));
+
+			throwable = (*jniEnv)->ExceptionOccurred(jniEnv);
+			if (throwable != NULL) {
+				(*jniEnv)->ExceptionDescribe(jniEnv);
+				(*jniEnv)->ExceptionClear(jniEnv);
+				fatal_error("ERROR: Calling UpcallGetObjects::getJavaDefinedObjects in Kevoree_principal\n");
+			}
+			array_length = (*jniEnv)->GetArrayLength(jniEnv, r);
+			for (idx = 0 ; idx < array_length; idx++) {
+				jobject element = (*jniEnv)->GetObjectArrayElement(jniEnv, r, idx);
+				jlong tag_tmp = tagForObject( &(*principals)[j] );
+
+				setFollowReferences(tag_tmp, true);
+
+				err = (*jvmti)->SetTag(jvmti, 
+								element,
+		                    	tag_tmp);
+				check_jvmti_error(jvmti, err, "set element tag");
+				
+			}
+			
 		}
 
 

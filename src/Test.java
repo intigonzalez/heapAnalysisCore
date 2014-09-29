@@ -139,6 +139,19 @@ public class Test {
 		}
 	}
 
+	public static class NewObjectUpcallGetObjects implements UpcallGetObjects {
+
+		public Object[] getJavaDefinedObjects(String id) {
+			Object[] r = new Object[1000];
+			System.out.println("Executing upcall");
+			for (int k = 0; k < 1000 ; k++ )
+				r[k] = new String(id);
+
+			return r;
+		}
+
+	}
+
 	public static void main(String[] args) throws Exception {
 		boolean[] bb = new boolean[1000000];
 		Thread1 th = new Thread1();
@@ -156,6 +169,9 @@ public class Test {
 		th2.setContextClassLoader(loader2);		
 		th2.setName("The guy");
 		th2.start();
+
+		// set callback
+		HeapAnalysis.callback = new NewObjectUpcallGetObjects();
 
 		// console
 		System.out.printf("Started an running\n");

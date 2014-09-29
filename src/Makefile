@@ -87,7 +87,7 @@ include src_plugins/kevoree_principal/subdir.mk
 
 LOCAL_PATH:=/home/inti/programs/jdk1.7.0_65_demos/demo/jvmti/heap\ analyzer/src/localMavenRepo/repo/
 
-JAVA_PATHS := org/heapexplorer/heapanalysis/AnalysisType.java org/heapexplorer/heapanalysis/HeapAnalysis.java org/heapexplorer/heapanalysis/ClassDetailsUsage.java
+JAVA_PATHS := org/heapexplorer/heapanalysis/AnalysisType.java org/heapexplorer/heapanalysis/HeapAnalysis.java org/heapexplorer/heapanalysis/ClassDetailsUsage.java org/heapexplorer/heapanalysis/UpcallGetObjects.java
 
 JAVA_CLASS_PATHS := $(JAVA_PATHS:%.java=%.class)
 
@@ -116,7 +116,7 @@ installplugins:
 # Cleanup the built bits
 clean:
 	rm -f $(LIBRARY) $(OBJECTS)
-	rm -f heapexplorer.jar *.class
+	rm -f heapanalysis.jar *.class
 	rm -f $(ANALYSIS_LIB)
 	rm -f $(OBJS_FILES)
 
