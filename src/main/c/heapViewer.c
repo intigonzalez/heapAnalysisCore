@@ -101,16 +101,26 @@ compareDetails(const void *p1, const void *p2)
 
 static jobject
 StandardCreateResults
-(jvmtiEnv* jvmti, JNIEnv *jniEnv, ClassDetails* details, int count_classes)
+(jvmtiEnv* jvmti, JNIEnv *jniEnv, char* principal_name, ClassDetails* details, int count_classes)
 {
 	jobjectArray resultForOnePrincipal = NULL;
 	jobject singleResult;
+	jobject finalResult;
 	jclass classDetails;
+	jclass classPrincipalDetails;
 	jmethodID constructor;
+	jmethodID constructor_classPrincipalDetails;
 	int i;
 
 	classDetails = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/ClassDetailsUsage");
 	constructor = (*jniEnv)->GetMethodID(jniEnv, classDetails, "<init>", "(Ljava/lang/String;II)V");
+
+	classPrincipalDetails = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/PrincipalClassDetailsUsage");
+	constructor_classPrincipalDetails =
+			(*jniEnv)->GetMethodID(jniEnv, classPrincipalDetails, "<init>",
+				"(Ljava/lang/String;[Lorg/heapexplorer/heapanalysis/ClassDetailsUsage;)V");
+
+	// create arrays
 	resultForOnePrincipal = (*jniEnv)->NewObjectArray(jniEnv, count_classes, classDetails, NULL);
 	for ( i = 0 ; i < count_classes; i++) {
 		singleResult = (*jniEnv)->NewObject(jniEnv, classDetails, constructor, 
@@ -118,7 +128,10 @@ StandardCreateResults
 		(*jniEnv)->SetObjectArrayElement(jniEnv, resultForOnePrincipal, i, singleResult);	
 	}
 
-	return resultForOnePrincipal;
+	finalResult = (*jniEnv)->NewObject(jniEnv, classPrincipalDetails, constructor_classPrincipalDetails,
+                  					(*jniEnv)->NewStringUTF(jniEnv, principal_name),resultForOnePrincipal);
+
+	return finalResult;
 }
 
 
@@ -209,7 +222,7 @@ jobject explorePrincipals(
 		((LocalExploration)(principals[j].strategy_to_explore))(jvmti,  &principals[j]);
 		// step 3.4
 		if (createResults == NULL)
-			tmpObj= StandardCreateResults(jvmti, jniEnv, principals[j].details, count_classes);
+			tmpObj= StandardCreateResults(jvmti, jniEnv, principals[j].name, principals[j].details, count_classes);
 		else 
 			tmpObj = createResults(jvmti, jniEnv, principals[j].user_data);
 
