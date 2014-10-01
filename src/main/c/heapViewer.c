@@ -427,6 +427,7 @@ onClassLoad(jvmtiEnv *jvmti,
 
 		check_jvmti_error(jvmti, error, "Cannot get class name");
 		if (strcmp(cName, "Lorg/heapexplorer/heapanalysis/HeapAnalysis;")==0) {
+			stdout_message("OHHHHHHHH, no, loading the class again\n");
 		    prepareClass(env, klass);
 		}
 		(*jvmti)->Deallocate(jvmti, gName);
@@ -494,7 +495,7 @@ loadPlugins(const char* configFile)
 	char buffer[255];
 	if ((f = fopen(configFile, "r")) == NULL) {
 		// no plugins to load	
-		fprintf(stderr, "Error %d:%s opening the file\n", errno, strerror(errno));
+		fprintf(stderr, "Error opening the file errno=%d (%s). File %s\n", errno, strerror(errno), configFile);
 		return;
 	}
 	while (fgets (buffer, sizeof(buffer), f)) {
@@ -505,7 +506,7 @@ loadPlugins(const char* configFile)
     	stdout_message("Loading plugin: %s\n", buffer);		
 		handle = dlopen(buffer, RTLD_NOW | RTLD_LOCAL);
 		if (!handle) {
-        	fprintf(stderr, "Error loading the plugin: %s\n", dlerror());
+        	fprintf(stderr, "Error loading the plugin=%s, error=%s\n", buffer, dlerror());
         	continue;
     	}
 		dlerror();    /* Clear any existing error */
@@ -537,7 +538,7 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 	}
 
 	gdata->nbPlugins = 0;
-	loadPlugins("config.ini");
+	loadPlugins("/tmp/config.ini");
 	
 
     /* Get JVMTI environment */
@@ -590,7 +591,7 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     check_jvmti_error(jvmti, err, "Cannot set event notification");
 
 	/* Add demo jar file to boot classpath */
-    add_demo_jar_to_bootclasspath2(jvmti, "heapanalysis.jar");
+    add_demo_jar_to_bootclasspath2(jvmti, "/tmp/heapanalysis.jar");
 
 	/* Setup global data */
     return 0;

@@ -10,7 +10,8 @@ public class ClassDetailsUsage {
 		totalSize = size;
 	}
 
+    @Override
 	public String toString() {
-		return String.format("This is shit %s %d %d", className, nbObjects, totalSize);	
+		return String.format("This is shit %s %d %d", className, nbObjects, totalSize);
 	}
 }
