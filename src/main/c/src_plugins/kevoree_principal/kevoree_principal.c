@@ -129,14 +129,14 @@ jint JNICALL callback_all_references
 	if (class_tag == (jlong)0) return 0;
 
 	d = (ClassDetails*)getDataFromTag(class_tag);
-	if (strcmp("Lorg/kevoree/microsandbox/samples/memory/MemoryConsumerMaxSize;", getClassSignature(d)) == 0) {
-		printf("\nAMAZING tagged=%d ref_kind=%d\n", isTagged(*tag_ptr), reference_kind);
-		if (referrer_class_tag != 0) {
-			ClassDetails* d0 = (ClassDetails*)getDataFromTag(referrer_class_tag);
-			printf("FOUND IT, REFERENCED BY %s\n", getClassSignature(d0));
-		}
-		lla = true;
-	}
+//	if (strcmp("Lorg/kevoree/microsandbox/samples/memory/MemoryConsumerMaxSize;", getClassSignature(d)) == 0) {
+//		printf("\nAMAZING tagged=%d ref_kind=%d\n", isTagged(*tag_ptr), reference_kind);
+//		if (referrer_class_tag != 0) {
+//			ClassDetails* d0 = (ClassDetails*)getDataFromTag(referrer_class_tag);
+//			printf("FOUND IT, REFERENCED BY %s\n", getClassSignature(d0));
+//		}
+//		lla = true;
+//	}
 	switch(reference_kind) {
 		case JVMTI_HEAP_REFERENCE_THREAD:
 			if (isTagged(*tag_ptr)) // if tagged from another principal
@@ -352,6 +352,56 @@ followReferences_to_discard(
     check_jvmti_error(jvmti, err, "iterate through heap");
 }
 
+#define HEAP_ANALYSIS_CLASS "org/heapexplorer/heapanalysis/HeapAnalysis"
+
+#define UpcallGetObjects_Class "org/heapexplorer/heapanalysis/UpcallGetObjects"
+#define UpcallGetObjects_Sig "Lorg/heapexplorer/heapanalysis/UpcallGetObjects;"
+
+
+
+static jclass klass_HeapAnalysis;
+static jclass klass_UpcallGetObjects;
+static jfieldID field_upcall;
+static jmethodID method_getJavaDefinedObjects;
+static jobject object_upcall;
+static jboolean cached;
+
+static void
+cacheMethodIds(JNIEnv *jniEnv)
+{
+    jclass cls1;
+    jobject tmp;
+
+    if (!cached) {
+        cls1 = (*jniEnv)->FindClass(jniEnv, HEAP_ANALYSIS_CLASS);
+        if (cls1 == NULL) fatal_error("ERROR: Impossible to obtain HeapAnalysis in Kevoree_principal\n");
+        klass_HeapAnalysis = (*jniEnv)->NewGlobalRef(jniEnv, cls1);
+
+        field_upcall = (*jniEnv)->GetStaticFieldID(jniEnv, klass_HeapAnalysis,
+            "callback", UpcallGetObjects_Sig);
+
+        if (field_upcall == NULL)
+            fatal_error("ERROR: Impossible to obtain HeapAnalysis::callback in Kevoree_principal\n");
+
+        tmp = (*jniEnv)->GetStaticObjectField(jniEnv,
+                        klass_HeapAnalysis, field_upcall);
+        object_upcall = (*jniEnv)->NewGlobalRef(jniEnv, tmp);
+
+        cls1 = (*jniEnv)->FindClass(jniEnv, UpcallGetObjects_Class);
+        if (cls1 == NULL)
+            fatal_error("ERROR: Impossible to obtain UpcallGetObjects in Kevoree_principal\n");
+        klass_UpcallGetObjects = (*jniEnv)->NewGlobalRef(jniEnv, cls1);
+
+        method_getJavaDefinedObjects = (*jniEnv)->GetMethodID(jniEnv,
+                    klass_UpcallGetObjects, "getJavaDefinedObjects",
+                    "(Ljava/lang/String;)[Ljava/lang/Object;");
+        if (method_getJavaDefinedObjects == NULL)
+            fatal_error("ERROR: Impossible to obtain UpcallGetObjects::getJavaDefinedObjects in Kevoree_principal\n");
+
+        cached = true;
+    }
+}
+
 /* create principals */
 jint createPrincipal(jvmtiEnv* jvmti, 
 		JNIEnv *jniEnv,
@@ -364,33 +414,10 @@ jint createPrincipal(jvmtiEnv* jvmti,
 	jthread* threads;
 	jvmtiError err;
 	SetOfStrings strings;
-	int* threadsToConsider;  
+	int* threadsToConsider;
 	jvmtiHeapCallbacks heapCallbacks;
-	jclass klass_HeapAnalysis;
-	jclass klass_UpcallGetObjects;
-	jfieldID field_upcall;
-	jmethodID method_getJavaDefinedObjects;
-	jobject object_upcall;
 
-	klass_HeapAnalysis = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/HeapAnalysis");
-	if (klass_HeapAnalysis == NULL)
-		fatal_error("ERROR: Impossible to obtain HeapAnalysis in Kevoree_principal\n");
-	field_upcall = (*jniEnv)->GetStaticFieldID(jniEnv, klass_HeapAnalysis, 
-		"callback", "Lorg/heapexplorer/heapanalysis/UpcallGetObjects;");
-	if (field_upcall == NULL)
-		fatal_error("ERROR: Impossible to obtain HeapAnalysis::callback in Kevoree_principal\n");
-
-	object_upcall = (*jniEnv)->GetStaticObjectField(jniEnv, 
-					klass_HeapAnalysis, field_upcall);
-
-	klass_UpcallGetObjects = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/UpcallGetObjects");
-	if (klass_HeapAnalysis == NULL)
-		fatal_error("ERROR: Impossible to obtain UpcallGetObjects in Kevoree_principal\n");
-	method_getJavaDefinedObjects = (*jniEnv)->GetMethodID(jniEnv, 
-				klass_UpcallGetObjects, "getJavaDefinedObjects", 
-				"(Ljava/lang/String;)[Ljava/lang/Object;");
-	if (method_getJavaDefinedObjects == NULL)
-		fatal_error("ERROR: Impossible to obtain UpcallGetObjects::getJavaDefinedObjects in Kevoree_principal\n");
+    cacheMethodIds(jniEnv);
 
 	// a very bad way of initializing the set
 	memset(&strings,0, sizeof(SetOfStrings));
@@ -404,7 +431,7 @@ jint createPrincipal(jvmtiEnv* jvmti,
 		char  tname[255];
 
         get_thread_group_name(jvmti, threads[i], tname, sizeof(tname));
-		if (startsWith(PREFIX_KEV_GROUP, tname)){
+		if (startsWith(PREFIX_KEV_GROUP, tname) && (strstr(tname, "components") != NULL)){
 			threadsToConsider[i] = true;
 			k = indexOf(&strings, tname);
 		    if (k == -1) {
@@ -470,7 +497,6 @@ jint createPrincipal(jvmtiEnv* jvmti,
     	check_jvmti_error(jvmti, err, "set thread tag");
 
 		/* tag fields of thread */
-		printf("%s\n", tname);
 		(void)memset(&heapCallbacks, 0, sizeof(heapCallbacks));
 		heapCallbacks.heap_reference_callback = &callback_fields_of_thread;
 		err = (*jvmti)->FollowReferences(jvmti,
@@ -546,8 +572,9 @@ int DECLARE_FUNCTION(HeapAnalyzerPlugin* r)
 {
 	r->name = "kevoree_principal";
 	r->description = "This plugin calculates the number of objects of each class that are"
- 		"reachable from all threads that belong to some thread group with a name begining by 'kev/'."
+ 		"reachable from all threads that belong to some thread group with a name beginning by 'kev/'."
 		"Each of such thread group represents a different resource principal";
 	r->createPrincipals = createPrincipal;
+    cached = false;
 	return 0;
 }
