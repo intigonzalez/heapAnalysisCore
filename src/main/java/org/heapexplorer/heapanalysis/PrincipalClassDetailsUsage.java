@@ -5,10 +5,12 @@ package org.heapexplorer.heapanalysis;
  */
 public class PrincipalClassDetailsUsage {
     public final String resourceId;
+    public final long totalConsumption;
     public final ClassDetailsUsage[] detailsUsages;
 
-    public PrincipalClassDetailsUsage(String resourceId, ClassDetailsUsage[] detailsUsages) {
+    public PrincipalClassDetailsUsage(String resourceId, long totalConsumption, ClassDetailsUsage[] detailsUsages) {
         this.resourceId = resourceId;
+        this.totalConsumption = totalConsumption;
         this.detailsUsages = detailsUsages;
     }
 }

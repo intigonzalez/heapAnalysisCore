@@ -134,6 +134,43 @@ StandardCreateResults
 	return finalResult;
 }
 
+static jobject
+KevoreeCreateResults
+(jvmtiEnv* jvmti, JNIEnv *jniEnv, char* principal_name, ClassDetails* details, int count_classes)
+{
+	jobjectArray resultForOnePrincipal = NULL;
+	jobject singleResult;
+	jobject finalResult;
+	jclass classDetails;
+	jclass classPrincipalDetails;
+	jmethodID constructor;
+	jmethodID constructor_classPrincipalDetails;
+	int i;
+	jlong totalSpace = 0;
+
+	classDetails = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/ClassDetailsUsage");
+	constructor = (*jniEnv)->GetMethodID(jniEnv, classDetails, "<init>", "(Ljava/lang/String;II)V");
+
+	classPrincipalDetails = (*jniEnv)->FindClass(jniEnv, "org/heapexplorer/heapanalysis/PrincipalClassDetailsUsage");
+	constructor_classPrincipalDetails =
+			(*jniEnv)->GetMethodID(jniEnv, classPrincipalDetails, "<init>",
+				"(Ljava/lang/String;J[Lorg/heapexplorer/heapanalysis/ClassDetailsUsage;)V");
+
+    if (constructor_classPrincipalDetails == NULL)
+        fatal_error("ERROR: Impossible to obtain PrincipalClassDetailsUsage::<init> in Kevoree_principal\n");
+
+	// create arrays
+	resultForOnePrincipal = (*jniEnv)->NewObjectArray(jniEnv, 0, classDetails, NULL);
+	for ( i = 0 ; i < count_classes; i++) {
+	    totalSpace += details[i].space;
+	}
+
+	finalResult = (*jniEnv)->NewObject(jniEnv, classPrincipalDetails, constructor_classPrincipalDetails,
+                  					(*jniEnv)->NewStringUTF(jniEnv, principal_name),totalSpace,resultForOnePrincipal);
+
+	return finalResult;
+}
+
 
 /** 
  * Explore the memory consumption of each principal 
@@ -222,7 +259,7 @@ jobject explorePrincipals(
 		((LocalExploration)(principals[j].strategy_to_explore))(jvmti,  &principals[j]);
 		// step 3.4
 		if (createResults == NULL)
-			tmpObj= StandardCreateResults(jvmti, jniEnv, principals[j].name, principals[j].details, count_classes);
+			tmpObj= KevoreeCreateResults(jvmti, jniEnv, principals[j].name, principals[j].details, count_classes);
 		else 
 			tmpObj = createResults(jvmti, jniEnv, principals[j].user_data);
 
@@ -440,7 +477,7 @@ onClassLoad(jvmtiEnv *jvmti,
 
 		check_jvmti_error(jvmti, error, "Cannot get class name");
 		if (strcmp(cName, "Lorg/heapexplorer/heapanalysis/HeapAnalysis;")==0) {
-			stdout_message("OHHHHHHHH, no, loading the class again\n");
+			stdout_message("OHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH, no, loading the class again\n");
 		    prepareClass(env, klass);
 		}
 		(*jvmti)->Deallocate(jvmti, gName);

@@ -46,9 +46,6 @@ get_thread_group_name(jvmtiEnv *jvmti, jthread thread, char *tname, int maxlen)
     /* Make sure the stack variables are garbage free */
     (void)memset(&info,0, sizeof(info));
 
-    /* Assume the name is unknown for now */
-    (void)strcpy(tname, "Unknown");
-
     /* Get the thread information, which includes the thread group */
     error = (*jvmti)->GetThreadInfo(jvmti, thread, &info);
     check_jvmti_error(jvmti, error, "Cannot get thread info");
@@ -62,21 +59,18 @@ get_thread_group_name(jvmtiEnv *jvmti, jthread thread, char *tname, int maxlen)
 		error = (*jvmti)->GetThreadGroupInfo(jvmti, info.thread_group, &infoG);
     	check_jvmti_error(jvmti, error, "Cannot get thread group info");
 		if (infoG.name != NULL) {
-
 		    /* Copy the thread name into tname if it will fit */
-		    len = (int)strlen(infoG.name);
-		    if ( len < maxlen ) {
-		        (void)strcpy(tname, infoG.name);
-		    }
+		    (void)strcpy(tname, infoG.name);
 			if (infoG.name != NULL)			
 				deallocate(jvmti, (void*)infoG.name);
 		}
+		else tname[0] = '';
 
         /* Every string allocated by JVMTI needs to be freed */
 		if (info.name != NULL)        
 			deallocate(jvmti, (void*)info.name);
-		
     }
+    else tname[0] = '';
 }
 
 static jboolean startsWith(char* prefix, char* s)
@@ -124,7 +118,7 @@ jint JNICALL callback_all_references
 {	
 	ClassDetails *d;
 	ResourcePrincipal* princ = (ResourcePrincipal*)user_data;
-	jboolean lla = false;
+//	jboolean lla = false;
 
 	if (class_tag == (jlong)0) return 0;
 
@@ -363,6 +357,7 @@ static jclass klass_HeapAnalysis;
 static jclass klass_UpcallGetObjects;
 static jfieldID field_upcall;
 static jmethodID method_getJavaDefinedObjects;
+static jmethodID method_mustAnalyse;
 static jobject object_upcall;
 static jboolean cached;
 
@@ -398,12 +393,19 @@ cacheMethodIds(JNIEnv *jniEnv)
         if (method_getJavaDefinedObjects == NULL)
             fatal_error("ERROR: Impossible to obtain UpcallGetObjects::getJavaDefinedObjects in Kevoree_principal\n");
 
+        method_mustAnalyse = (*jniEnv)->GetMethodID(jniEnv,
+                            klass_UpcallGetObjects, "mustAnalyse",
+                            "(Ljava/lang/String;)Z");
+                if (method_getJavaDefinedObjects == NULL)
+                    fatal_error("ERROR: Impossible to obtain UpcallGetObjects::mustAnalyse in Kevoree_principal\n");
+
         cached = true;
     }
 }
 
 /* create principals */
-jint createPrincipal(jvmtiEnv* jvmti, 
+static jint
+createPrincipal(jvmtiEnv* jvmti,
 		JNIEnv *jniEnv,
 		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
 {
@@ -416,6 +418,7 @@ jint createPrincipal(jvmtiEnv* jvmti,
 	SetOfStrings strings;
 	int* threadsToConsider;
 	jvmtiHeapCallbacks heapCallbacks;
+	jboolean flags;
 
     cacheMethodIds(jniEnv);
 
@@ -431,6 +434,9 @@ jint createPrincipal(jvmtiEnv* jvmti,
 		char  tname[255];
 
         get_thread_group_name(jvmti, threads[i], tname, sizeof(tname));
+//        flags = (*jniEnv)->CallBooleanMethod(jniEnv, object_upcall,
+//                        method_mustAnalyse, (*jniEnv)->NewStringUTF(jniEnv, tname));
+
 		if (startsWith(PREFIX_KEV_GROUP, tname) && (strstr(tname, "components") != NULL)){
 			threadsToConsider[i] = true;
 			k = indexOf(&strings, tname);
@@ -456,18 +462,11 @@ jint createPrincipal(jvmtiEnv* jvmti,
 	(*principals)[0].tag = 1;
 	(*principals)[0].strategy_to_explore = &followReferences_to_discard;
 
-	/*
-	jclass classThread = (*jniEnv)->FindClass(jniEnv, "java/lang/Thread");
-
-	jfieldID fieldId = (*jniEnv)->GetFieldID(jniEnv, classThread,
-						"target", "Ljava/lang/Runnable;");
-	*/
 	for (i = 0 ; i < thread_count ; ++i) {
 		jvmtiThreadInfo t_info;
-		char  tname[255];
 		jboolean firstThread;
 
-		get_thread_group_name(jvmti, threads[i], tname, sizeof(tname));
+//		get_thread_group_name(jvmti, threads[i], tname, sizeof(tname));
 		k = threadsToConsider[i];
 		if (k == -1) continue;
 
@@ -476,7 +475,7 @@ jint createPrincipal(jvmtiEnv* jvmti,
 		firstThread = (*principals)[j].details == NULL;
 
 		if (firstThread) {
-			(*principals)[j].name = strdup(tname);
+			(*principals)[j].name = strdup(strings.elements[k]);
 			/* Setup an area to hold details about these classes */
 			(*principals)[j].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
 			if ( (*principals)[j].details == NULL ) 
@@ -505,7 +504,7 @@ jint createPrincipal(jvmtiEnv* jvmti,
 		check_jvmti_error(jvmti, err, "iterate through heap");
 
 
-		/* tag the TreadGroup */
+		/* tag the ThreadGroup */
 		if (firstThread) {
 			memset(&t_info,0, sizeof(t_info));
 			err = (*jvmti)->GetThreadInfo(jvmti, 
@@ -523,46 +522,82 @@ jint createPrincipal(jvmtiEnv* jvmti,
 		                    	tagForObject( &(*principals)[j]));
 				check_jvmti_error(jvmti, err, "set classloader tag");
 			}
+
+			// java-defined root_objects
+            if (object_upcall != NULL) {
+                jthrowable throwable;
+                jint array_length;
+                jint idx;
+
+                jarray r = (*jniEnv)->CallObjectMethod(jniEnv, object_upcall,
+                            method_getJavaDefinedObjects, (*jniEnv)->NewStringUTF(jniEnv, (*principals)[j].name));
+
+//                throwable = (*jniEnv)->ExceptionOccurred(jniEnv);
+//                if (throwable != NULL) {
+//                    (*jniEnv)->ExceptionDescribe(jniEnv);
+//                    (*jniEnv)->ExceptionClear(jniEnv);
+//                    fatal_error("ERROR: Calling UpcallGetObjects::getJavaDefinedObjects in Kevoree_principal\n");
+//                }
+                array_length = (*jniEnv)->GetArrayLength(jniEnv, r);
+                for (idx = 0 ; idx < array_length; idx++) {
+                    jobject element = (*jniEnv)->GetObjectArrayElement(jniEnv, r, idx);
+                    jlong tag_tmp = tagForObject( &(*principals)[j] );
+
+                    setFollowReferences(tag_tmp, true);
+
+                    err = (*jvmti)->SetTag(jvmti,
+                                    element,
+                                    tag_tmp);
+                    check_jvmti_error(jvmti, err, "set element tag");
+                }
+
+            }
 		}
-
-		// java-defined root_objects
-		if (firstThread && object_upcall != NULL) {
-			jthrowable throwable;
-			jint array_length;
-			jint idx;
-			
-			jarray r = (*jniEnv)->CallObjectMethod(jniEnv, object_upcall, 
-						method_getJavaDefinedObjects, (*jniEnv)->NewStringUTF(jniEnv, (*principals)[j].name));
-
-			throwable = (*jniEnv)->ExceptionOccurred(jniEnv);
-			if (throwable != NULL) {
-				(*jniEnv)->ExceptionDescribe(jniEnv);
-				(*jniEnv)->ExceptionClear(jniEnv);
-				fatal_error("ERROR: Calling UpcallGetObjects::getJavaDefinedObjects in Kevoree_principal\n");
-			}
-			array_length = (*jniEnv)->GetArrayLength(jniEnv, r);
-			for (idx = 0 ; idx < array_length; idx++) {
-				jobject element = (*jniEnv)->GetObjectArrayElement(jniEnv, r, idx);
-				jlong tag_tmp = tagForObject( &(*principals)[j] );
-
-				setFollowReferences(tag_tmp, true);
-
-				err = (*jvmti)->SetTag(jvmti, 
-								element,
-		                    	tag_tmp);
-				check_jvmti_error(jvmti, err, "set element tag");
-				
-			}
-			
-		}
-
-
 	}
 	/* Free up all allocated space */
     deallocate(jvmti, threads);
 	free(threadsToConsider);
 
 	return count_principals;
+}
+
+static jint
+createPrincipal111(jvmtiEnv* jvmti,
+		JNIEnv *jniEnv,
+		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
+{
+	jint count_principals, thread_count;
+	int j;
+	int i;
+	int k;
+	jthread* threads;
+	jvmtiError err;
+	SetOfStrings strings;
+	int* threadsToConsider;
+	jvmtiHeapCallbacks heapCallbacks;
+	jboolean flags;
+
+    cacheMethodIds(jniEnv);
+
+	(*principals) = (ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), 1);
+
+	(*principals)[0].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
+    if ( (*principals)[0].details == NULL )
+           	fatal_error("ERROR: Ran out of malloc space\n");
+
+    for ( i = 0 ; i < count_classes ; i++ )
+		(*principals)[0].details[i].info = &infos[i];
+
+	(*principals)[0].name = "system-info";
+	(*principals)[0].tag = 1;
+	(*principals)[0].strategy_to_explore = &followReferences_to_discard;
+
+
+	/* Free up all allocated space */
+    deallocate(jvmti, threads);
+	free(threadsToConsider);
+
+	return 1;
 }
 
 /** Fill a structure with the infomation about the plugin 
