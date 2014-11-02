@@ -50,25 +50,6 @@ static jboolean startsWith(char* prefix, char* s)
 	}
 	return (*prefix) == 0;
 }
-static jboolean 
-isSystemClass(char* className)
-{
-	if (className[0] == 'L')
-		return startsWith("Ljava/", className)
-				|| startsWith("Ljavax/", className)
-				|| startsWith("Lsun/", className);
-	else if (className[0] == '[') {
-	return startsWith("[C", className)
-		|| startsWith("[B", className)
-		|| startsWith("[Z", className)
-		|| startsWith("[J", className)
-		|| startsWith("[Lsun/", className)
-		|| startsWith("[Ljava/", className)
-		|| startsWith("[Ljavax/", className)		
-		;
-	}
-	return JNI_FALSE;
-}
 
 /* Callback for HeapReferences in FollowReferences (Memory consumed by Thread) */
 static 
@@ -108,7 +89,7 @@ jint JNICALL callback_all_references
 				
 				d = (ClassDetails*)getDataFromTag(*tag_ptr);		
 				if (!isTagged(*tag_ptr) 
-							&& isSystemClass(getClassSignature(d))) {
+							&& isSystemClass(d)) {
 					attachToPrincipal(*tag_ptr, princ);						
 					d = (ClassDetails*)getDataFromTag(class_tag);
 					d->count++;
@@ -178,7 +159,7 @@ jint JNICALL callback_single_thread
 				
 				d = (ClassDetails*)getDataFromTag(*tag_ptr);
 				if (!isTagged(*tag_ptr)
-						&& !isSystemClass(getClassSignature(d))) {								
+						&& !isSystemClass((d))) {
 					attachToPrincipal(*tag_ptr, princ);
 					
 					d = (ClassDetails*)getDataFromTag(class_tag);

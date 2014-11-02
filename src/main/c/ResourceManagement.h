@@ -10,9 +10,14 @@
 #include "jni.h"
 #include "jvmti.h"
 
+#define CLAZZ_CLAZZ 0x01
+#define SYSTEM_CLAZZ 0x02
+
 typedef struct {
 	char* signature;
-	jboolean is_clazz_clazz;
+	jint flags;
+//	jboolean is_clazz_clazz;
+//	jboolean is_system_class;
 } ClassInfo;
 
 /* Typedef to hold class details */
@@ -25,7 +30,7 @@ typedef struct {
 /* Typedef to hold a Resource Principal  */
 typedef struct {
 	char* name;
-	jlong tag;
+	jint tag;
 	int count_details;
 	ClassDetails* details;
 	void* user_data;
@@ -53,10 +58,13 @@ typedef jobject (*CreateResults)
 /* Operations to get info from classes*/
 char* getClassSignature(ClassDetails* d);
 jboolean isClassClass(ClassDetails* d);
+jboolean isSystemClass(ClassDetails* d);
 
 /*Operation related to object tagging*/
 jboolean isTagged(jlong t);
 jboolean isTaggedByPrincipal(jlong t, ResourcePrincipal* p);
+jint getLastTagCycleBoundary();
+void increaseTagCycleBoundary(jint amount);
 void removeTags(jvmtiEnv* jvmti);
 jlong tagForObject(ResourcePrincipal* p);
 jlong tagForObjectWithData(ResourcePrincipal* p, void* ud);

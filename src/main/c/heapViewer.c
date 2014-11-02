@@ -156,7 +156,7 @@ KevoreeCreateResults
 			(*jniEnv)->GetMethodID(jniEnv, classPrincipalDetails, "<init>",
 				"(Ljava/lang/String;J[Lorg/heapexplorer/heapanalysis/ClassDetailsUsage;)V");
 
-    if (constructor_classPrincipalDetails == NULL)
+    if (constructor == NULL)
         fatal_error("ERROR: Impossible to obtain PrincipalClassDetailsUsage::<init> in Kevoree_principal\n");
 
 	// create arrays
@@ -168,7 +168,40 @@ KevoreeCreateResults
 	finalResult = (*jniEnv)->NewObject(jniEnv, classPrincipalDetails, constructor_classPrincipalDetails,
                   					(*jniEnv)->NewStringUTF(jniEnv, principal_name),totalSpace,resultForOnePrincipal);
 
+    stdout_message("Found %ld\n", totalSpace);
+
 	return finalResult;
+}
+
+static jboolean startsWith(char* prefix, char* s)
+{
+	while((*s) != 0 && (*prefix)!=0) {
+		if ((*s) != (*prefix))
+			return JNI_FALSE;
+		s++;
+		prefix++;
+	}
+	return (*prefix) == 0;
+}
+
+static jboolean
+isSystemClazz(char* className)
+{
+	if (className[0] == 'L')
+		return startsWith("Ljava/", className)
+				|| startsWith("Ljavax/", className)
+				|| startsWith("Lsun/", className);
+	else if (className[0] == '[') {
+	return startsWith("[C", className)
+		|| startsWith("[B", className)
+		|| startsWith("[Z", className)
+		|| startsWith("[J", className)
+		|| startsWith("[Lsun/", className)
+		|| startsWith("[Ljava/", className)
+		|| startsWith("[Ljavax/", className)
+		;
+	}
+	return JNI_FALSE;
 }
 
 
@@ -258,8 +291,10 @@ jobject explorePrincipals(
 		/* Iterate through the heap and count up uses of jclass */
 		((LocalExploration)(principals[j].strategy_to_explore))(jvmti,  &principals[j]);
 		// step 3.4
-		if (createResults == NULL)
+		if (createResults == NULL) {
+		    stdout_message("Calling basic create results\n");
 			tmpObj= KevoreeCreateResults(jvmti, jniEnv, principals[j].name, principals[j].details, count_classes);
+		}
 		else 
 			tmpObj = createResults(jvmti, jniEnv, principals[j].user_data);
 
@@ -276,6 +311,7 @@ jobject explorePrincipals(
 			setUserDataForTag(t_ptr, NULL);
 	   	}
     }
+    increaseTagCycleBoundary(count_principals);
     // step 4
     for (j = 0 ; j < count_principals ; ++j)
     	free(principals[j].details);
@@ -316,9 +352,11 @@ do_analysis(jvmtiEnv *jvmti, JNIEnv *jniEnv, int id) {
 				check_jvmti_error(jvmti, err, "get class signature");
 				if ( sig == NULL )
 					fatal_error("ERROR: No class signature found\n");
-				gdata->info_classes[i].signature = strdup(sig);
+				gdata->info_classes[i].signature = 0;//strdup(sig);
 				//fprintf(stderr, "Pointer %p %s\n", gdata->info_classes[i].signature, sig);
-				gdata->info_classes[i].is_clazz_clazz = !strcmp(sig, "Ljava/lang/Class;");
+				gdata->info_classes[i].flags |= (!strcmp(sig, "Ljava/lang/Class;")?CLAZZ_CLAZZ:0);
+				gdata->info_classes[i].flags |= (isSystemClazz(sig)?SYSTEM_CLAZZ:0);
+
 				deallocate(jvmti, sig);
 			}
 
@@ -448,6 +486,7 @@ cbVMStart(jvmtiEnv *jvmti, JNIEnv *env)
         /* Register Natives for class whose methods we use */
         klass = (*env)->FindClass(env, "org/heapexplorer/heapanalysis/HeapAnalysis");
         if ( klass == NULL ) {
+            stdout_message("Error loading the class again\n");
             fatal_error("ERROR: JNI: Cannot find %s with FindClass\n",
                         "org/heapexplorer/heapanalysis/HeapAnalysis");
         }
@@ -528,10 +567,10 @@ vmDeath(jvmtiEnv *jvmti, JNIEnv *env)
  *
  */
 void
-add_demo_jar_to_bootclasspath2(jvmtiEnv *jvmti, char *demo_name)
+add_demo_jar_to_bootclasspath2(jvmtiEnv *jvmti, const char *demo_name)
 {
     jvmtiError error;
-    error = (*jvmti)->AddToBootstrapClassLoaderSearch(jvmti, (const char*)demo_name);
+    error = (*jvmti)->AddToBootstrapClassLoaderSearch(jvmti, demo_name);
     check_jvmti_error(jvmti, error, "Cannot add to boot classpath");
 }
 
@@ -539,7 +578,7 @@ add_demo_jar_to_bootclasspath2(jvmtiEnv *jvmti, char *demo_name)
 	Load the plugins declared in the configuration file
 */
 static void
-loadPlugins(const char* configFile)
+loadPlugins(jvmtiEnv *jvmti, const char* configFile)
 {
 	FILE* f;
 	char buffer[255];
@@ -549,6 +588,8 @@ loadPlugins(const char* configFile)
 		return;
 	}
 	while (fgets (buffer, sizeof(buffer), f)) {
+		char* tmp;
+		char* tmp2;
 		void *handle;
 		PluginDeclareFunction declarePlugin;
 		int n = strlen(buffer);
@@ -565,6 +606,17 @@ loadPlugins(const char* configFile)
 		gdata->plugins[gdata->nbPlugins].createResults = NULL;
 		(*declarePlugin)(&gdata->plugins[gdata->nbPlugins]);
 		//stdout_message("Plugin Name: %s\nPlugin Description: %s\n", gdata->plugins[gdata->nbPlugins].name, gdata->plugins[gdata->nbPlugins].description);
+
+		// now load its java library if it exist
+		tmp = strrchr(buffer, '/');
+		tmp++;
+		tmp2 = strrchr(&tmp[3], '.');
+		tmp2[0] = 0;
+		strcpy(tmp, &tmp[3]);
+		strcat(buffer, ".jar");
+		stdout_message("Reporting %s as final path\n", buffer);
+		add_demo_jar_to_bootclasspath2(jvmti, buffer);
+
 		gdata->nbPlugins++;
   	}
 	fclose(f);
@@ -580,16 +632,18 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
     jvmtiCapabilities   capabilities;
     jvmtiEventCallbacks callbacks;
     jvmtiEnv           *jvmti;
+    char* pathToPlugins = ".";
+    char configFile[255];
+    char heapAnalysisFile[255];
 
 	gdata->f = stdout;
 	if (options != NULL && strlen(options) > 0) {
-		gdata->f = fopen(options, "w");
-		stdout_message("This is shit %d\n", 1);
+		//gdata->f = fopen(options, "w");
+		pathToPlugins = options;
 	}
 
-	gdata->nbPlugins = 0;
-	loadPlugins("/tmp/config.ini");
-	
+    sprintf(configFile, "%s/%s", pathToPlugins, "config.ini");
+    sprintf(heapAnalysisFile, "%s/%s", pathToPlugins, "heapanalysis.jar");
 
     /* Get JVMTI environment */
     jvmti = NULL;
@@ -604,6 +658,11 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 
 	/* Here we save the jvmtiEnv* for Agent_OnUnload(). */
     gdata->jvmti = jvmti;
+
+    gdata->nbPlugins = 0;
+    loadPlugins(jvmti, configFile);
+
+    stdout_message("Version 18, size of ObjectTag is %ld bytes\n", sizeof(ObjectTag));
 
     /* Get/Add JVMTI capabilities */
     (void)memset(&capabilities, 0, sizeof(capabilities));
@@ -640,8 +699,8 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
                           JVMTI_EVENT_CLASS_LOAD, NULL);
     check_jvmti_error(jvmti, err, "Cannot set event notification");
 
-	/* Add demo jar file to boot classpath */
-    add_demo_jar_to_bootclasspath2(jvmti, "/tmp/heapanalysis.jar");
+    /* Add demo jar file to boot classpath */
+    add_demo_jar_to_bootclasspath2(jvmti, heapAnalysisFile);
 
 	/* Setup global data */
     return 0;
@@ -651,5 +710,6 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 JNIEXPORT void JNICALL
 Agent_OnUnload(JavaVM *vm)
 {
-	fclose(gdata->f);
+    if (gdata->f != stdout)
+	    fclose(gdata->f);
 }

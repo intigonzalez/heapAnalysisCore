@@ -3,16 +3,29 @@
 #include "agent_util.h"
 
 
+#define MAX_NUMBER_OF_TAGS ((4096 + 1024)*1024)
+static jint tagCycle = 0;
+static ObjectTag tagRegion[MAX_NUMBER_OF_TAGS];
+static ObjectTag* currentTag = tagRegion;
+static ObjectTag* lastAddress = &(tagRegion[MAX_NUMBER_OF_TAGS]);
+
 char* getClassSignature(ClassDetails* d)
 {
 	return d->info->signature;
 }
 
 /* return true iff the className == Ljava/lang/Class; */
-jboolean isClassClass(ClassDetails* d)
+jboolean
+isClassClass(ClassDetails* d)
 {
 	//return !strcmp(d->info->signature, "Ljava/lang/Class;");
-	return d->info->is_clazz_clazz;
+	return (d->info->flags & CLAZZ_CLAZZ) != 0;
+}
+
+jboolean
+isSystemClass(ClassDetails* d)
+{
+    return (d->info->flags & SYSTEM_CLAZZ) != 0;
 }
 
 /*Operation related to object tagging*/
@@ -22,8 +35,8 @@ cbRemovingTag(jlong class_tag, jlong size, jlong* tag_ptr, jint length,
            void* user_data)
 {
 	if ((*tag_ptr)) {
-		free((void*)(ptrdiff_t)(*tag_ptr));
-		(*tag_ptr) = (jlong)0;		
+//		free((void*)(ptrdiff_t)(*tag_ptr));
+		(*tag_ptr) = (jlong)0;
 	}
     return JVMTI_VISIT_OBJECTS;
 }
@@ -31,14 +44,15 @@ cbRemovingTag(jlong class_tag, jlong size, jlong* tag_ptr, jint length,
 void
 removeTags(jvmtiEnv* jvmti)
 {
-	jvmtiError err;
-	jvmtiHeapCallbacks heapCallbacks;
-	(void)memset(&heapCallbacks, 0, sizeof(heapCallbacks));
-    heapCallbacks.heap_iteration_callback = &cbRemovingTag;
-    err = (*jvmti)->IterateThroughHeap(jvmti,
-                    JVMTI_HEAP_FILTER_UNTAGGED, NULL,
-	       	&heapCallbacks, NULL);
-    check_jvmti_error(jvmti, err, "iterate through heap");
+//	jvmtiError err;
+//	jvmtiHeapCallbacks heapCallbacks;
+//	(void)memset(&heapCallbacks, 0, sizeof(heapCallbacks));
+//    heapCallbacks.heap_iteration_callback = &cbRemovingTag;
+//    err = (*jvmti)->IterateThroughHeap(jvmti,
+//                    JVMTI_HEAP_FILTER_UNTAGGED, NULL,
+//	       	&heapCallbacks, NULL);
+//    check_jvmti_error(jvmti, err, "iterate through heap");
+    currentTag = tagRegion;
 }
 
 jboolean
@@ -49,7 +63,9 @@ isTagged(jlong t)
 	ObjectTag* tag;
 	if (t == 0) return JNI_FALSE;
 	tag = (ObjectTag*)(void*)(ptrdiff_t)t;
-	return tag->tag != 0; // tag!=0 && tag->tag != 0; hence, !(tag!=0 && tag->tag != 0) the same as (tag == 0 || tag->tag == 0)
+
+	return tag->tag != 0 && tag < currentTag;
+	//return tag->tag != 0; // tag!=0 && tag->tag != 0; hence, !(tag!=0 && tag->tag != 0) the same as (tag == 0 || tag->tag == 0)
 }
 
 jboolean
@@ -58,18 +74,41 @@ isTaggedByPrincipal(jlong t, ResourcePrincipal* p)
 	ObjectTag* tag;
 	if (t == 0) return JNI_FALSE;
 	tag = (ObjectTag*)(void*)(ptrdiff_t)t;
-	return tag->tag == p->tag;
+	return tag->tag == p->tag && tag < currentTag;
+	//return tag->tag == p->tag;
+}
+
+jint
+getLastTagCycleBoundary()
+{
+    //return tagCycle;
+    return 0;
+}
+
+void
+increaseTagCycleBoundary(jint amount)
+{
+//    tagCycle += amount;
 }
 
 jlong
 tagForObject(ResourcePrincipal* p)
 {
-	ObjectTag* t = (ObjectTag*)calloc(sizeof(ObjectTag),1);
+//	ObjectTag* t = (ObjectTag*)calloc(sizeof(ObjectTag),1);
+	ObjectTag* t = currentTag;
+    t->user_data = 0;
+    t->tag = 0;
 	if (p) {
-		t->tag = p->tag;	
+		t->tag = p->tag;
+	}
+	currentTag++;
+	if (currentTag == lastAddress) {
+	    fprintf(stderr, "================== Error creating objects =====================\n");
+	    exit(1);
 	}
 	return (jlong)t;
 }
+
 
 jlong
 tagForObjectWithData(ResourcePrincipal* p, void* ud)

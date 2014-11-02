@@ -54,7 +54,7 @@
 extern "C" {
 #endif
 
-#define stdout_message(format, ...) fprintf(gdata->f, format, ##__VA_ARGS__);
+#define stdout_message(format, ...) fprintf(gdata->f, format, ##__VA_ARGS__); fflush(stdout);
 
 void  fatal_error(const char * format, ...);
 char *get_token(char *str, char *seps, char *buf, int max);

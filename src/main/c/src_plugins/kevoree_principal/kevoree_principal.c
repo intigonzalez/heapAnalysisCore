@@ -64,43 +64,13 @@ get_thread_group_name(jvmtiEnv *jvmti, jthread thread, char *tname, int maxlen)
 			if (infoG.name != NULL)			
 				deallocate(jvmti, (void*)infoG.name);
 		}
-		else tname[0] = '';
+		else tname[0] = '0';
 
         /* Every string allocated by JVMTI needs to be freed */
 		if (info.name != NULL)        
 			deallocate(jvmti, (void*)info.name);
     }
-    else tname[0] = '';
-}
-
-static jboolean startsWith(char* prefix, char* s)
-{
-	while((*s) != 0 && (*prefix)!=0) {
-		if ((*s) != (*prefix))
-			return JNI_FALSE;	
-		s++;
-		prefix++;
-	}
-	return (*prefix) == 0;
-}
-static jboolean 
-isSystemClass(char* className)
-{
-	if (className[0] == 'L')
-		return startsWith("Ljava/", className)
-				|| startsWith("Ljavax/", className)
-				|| startsWith("Lsun/", className);
-	else if (className[0] == '[') {
-	return startsWith("[C", className)
-		|| startsWith("[B", className)
-		|| startsWith("[Z", className)
-		|| startsWith("[J", className)
-		|| startsWith("[Lsun/", className)
-		|| startsWith("[Ljava/", className)
-		|| startsWith("[Ljavax/", className)		
-		;
-	}
-	return JNI_FALSE;
+    else tname[0] = '0';
 }
 
 /* Callback for HeapReferences in FollowReferences (Memory consumed by Thread) */
@@ -118,26 +88,19 @@ jint JNICALL callback_all_references
 {	
 	ClassDetails *d;
 	ResourcePrincipal* princ = (ResourcePrincipal*)user_data;
-//	jboolean lla = false;
 
 	if (class_tag == (jlong)0) return 0;
 
 	d = (ClassDetails*)getDataFromTag(class_tag);
-//	if (strcmp("Lorg/kevoree/microsandbox/samples/memory/MemoryConsumerMaxSize;", getClassSignature(d)) == 0) {
-//		printf("\nAMAZING tagged=%d ref_kind=%d\n", isTagged(*tag_ptr), reference_kind);
-//		if (referrer_class_tag != 0) {
-//			ClassDetails* d0 = (ClassDetails*)getDataFromTag(referrer_class_tag);
-//			printf("FOUND IT, REFERENCED BY %s\n", getClassSignature(d0));
-//		}
-//		lla = true;
-//	}
 	switch(reference_kind) {
 		case JVMTI_HEAP_REFERENCE_THREAD:
 			if (isTagged(*tag_ptr)) // if tagged from another principal
-				return 0;		
+				return 0;
+
 			d->count++;
 			d->space += (int)size;
 			*(tag_ptr) = tagForObject(princ);
+//			printf("PINGA EL TIPO ESTA AQUI (33333) %d, %s\n", d->space, princ->name);
 			return JVMTI_VISIT_OBJECTS;
 		case JVMTI_HEAP_REFERENCE_STACK_LOCAL:
 			if (isTagged(reference_info->stack_local.thread_tag) && 
@@ -150,7 +113,7 @@ jint JNICALL callback_all_references
 				
 				d = (ClassDetails*)getDataFromTag(*tag_ptr);		
 				if (!isTagged(*tag_ptr) 
-							&& isSystemClass(getClassSignature(d))) {
+							&& isSystemClass(d)) {
 					attachToPrincipal(*tag_ptr, princ);						
 					d = (ClassDetails*)getDataFromTag(class_tag);
 					d->count++;
@@ -224,8 +187,10 @@ jint JNICALL callback_single_thread
 			if (isTaggedByPrincipal(*tag_ptr, princ)) {
 				d->count++;
 				d->space += (int)size;
-				return JVMTI_VISIT_OBJECTS;			
+//				printf("PINGA EL TIPO ESTA AQUI (con buen tag) %d, %s\n", d->space, princ->name);
+				return JVMTI_VISIT_OBJECTS;
 			}
+//			printf("PINGA EL TIPO ESTA AQUI (22222) %d, %s\n", d->space, princ->name);
 			return 0;
 		case JVMTI_HEAP_REFERENCE_STACK_LOCAL:
 			if (!isTagged(reference_info->stack_local.thread_tag) ||
@@ -238,7 +203,7 @@ jint JNICALL callback_single_thread
 				
 				d = (ClassDetails*)getDataFromTag(*tag_ptr);
 				if (!isTagged(*tag_ptr)
-						&& !isSystemClass(getClassSignature(d))) {								
+						&& !isSystemClass(d)) {
 					attachToPrincipal(*tag_ptr, princ);
 					
 					d = (ClassDetails*)getDataFromTag(class_tag);
@@ -434,16 +399,17 @@ createPrincipal(jvmtiEnv* jvmti,
 		char  tname[255];
 
         get_thread_group_name(jvmti, threads[i], tname, sizeof(tname));
-//        flags = (*jniEnv)->CallBooleanMethod(jniEnv, object_upcall,
-//                        method_mustAnalyse, (*jniEnv)->NewStringUTF(jniEnv, tname));
+        flags = (*jniEnv)->CallBooleanMethod(jniEnv, object_upcall,
+                        method_mustAnalyse, (*jniEnv)->NewStringUTF(jniEnv, tname));
 
-		if (startsWith(PREFIX_KEV_GROUP, tname) && (strstr(tname, "components") != NULL)){
+		if (flags/*strstr(tname, PREFIX_KEV_GROUP)==tname && (strstr(tname, "components") != NULL)*/){
 			threadsToConsider[i] = true;
 			k = indexOf(&strings, tname);
 		    if (k == -1) {
 				k = include(&strings, strdup(tname));
 				count_principals++; // increase count
 			}
+//            printf("Thread from thread group %s\n", tname);
 			threadsToConsider[i] = k;
 		}
 		else threadsToConsider[i] = -1;
@@ -459,7 +425,7 @@ createPrincipal(jvmtiEnv* jvmti,
 		(*principals)[0].details[i].info = &infos[i];
 
 	(*principals)[0].name = "system-info";
-	(*principals)[0].tag = 1;
+	(*principals)[0].tag = getLastTagCycleBoundary() + 1;
 	(*principals)[0].strategy_to_explore = &followReferences_to_discard;
 
 	for (i = 0 ; i < thread_count ; ++i) {
@@ -486,7 +452,7 @@ createPrincipal(jvmtiEnv* jvmti,
 
 		
 			(*principals)[j].strategy_to_explore = &explore_FollowReferences_Thread;
-			(*principals)[j].tag = (jlong)(j+1);
+			(*principals)[j].tag = (getLastTagCycleBoundary() + j+1);
 		}
 
 		/* Tag this jthread */
@@ -559,45 +525,6 @@ createPrincipal(jvmtiEnv* jvmti,
 	free(threadsToConsider);
 
 	return count_principals;
-}
-
-static jint
-createPrincipal111(jvmtiEnv* jvmti,
-		JNIEnv *jniEnv,
-		ResourcePrincipal** principals, ClassInfo* infos, int count_classes)
-{
-	jint count_principals, thread_count;
-	int j;
-	int i;
-	int k;
-	jthread* threads;
-	jvmtiError err;
-	SetOfStrings strings;
-	int* threadsToConsider;
-	jvmtiHeapCallbacks heapCallbacks;
-	jboolean flags;
-
-    cacheMethodIds(jniEnv);
-
-	(*principals) = (ResourcePrincipal*)calloc(sizeof(ResourcePrincipal), 1);
-
-	(*principals)[0].details = (ClassDetails*)calloc(sizeof(ClassDetails), count_classes);
-    if ( (*principals)[0].details == NULL )
-           	fatal_error("ERROR: Ran out of malloc space\n");
-
-    for ( i = 0 ; i < count_classes ; i++ )
-		(*principals)[0].details[i].info = &infos[i];
-
-	(*principals)[0].name = "system-info";
-	(*principals)[0].tag = 1;
-	(*principals)[0].strategy_to_explore = &followReferences_to_discard;
-
-
-	/* Free up all allocated space */
-    deallocate(jvmti, threads);
-	free(threadsToConsider);
-
-	return 1;
 }
 
 /** Fill a structure with the infomation about the plugin 
